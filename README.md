@@ -2,6 +2,10 @@
 
 A comprehensive command-line tool for managing GNOME themes, cursors, and icons with automatic downloading, caching, and version management.
 
+<img width="1920" height="1033" alt="Screenshot From 2025-11-22 23-27-43" src="https://github.com/user-attachments/assets/c7902645-5803-46cd-a330-f1e815f5b23d" />
+<img width="1916" height="1039" alt="Screenshot From 2025-11-22 23-30-26" src="https://github.com/user-attachments/assets/92dcbe5f-06de-4a82-9dff-daf14c966404" />
+<img width="1920" height="1033" alt="Screenshot From 2025-11-22 23-32-11" src="https://github.com/user-attachments/assets/a44e8d90-b8cd-4e24-97ce-24e875d9e8cf" />
+
 ## Features
 
 - 🎨 **Complete Theme Management**: Install and apply GTK themes, cursor themes, and icon themes
