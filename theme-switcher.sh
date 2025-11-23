@@ -294,7 +294,7 @@ get_local_theme_last_updated_date() {
         return 1
     fi
 
-    # Find newest file/directory mtime
+    # Find newest file/directory mtime and return
     newest=$(find "$dir" -type f -printf "%T@\n" 2>/dev/null | sort -nr | head -n 1)
 
     if [[ -z "$newest" ]]; then
@@ -302,8 +302,8 @@ get_local_theme_last_updated_date() {
         return 1
     fi
 
-    # Convert UNIX timestamp → readable date
-    date -d @"${newest%.*}" "+%Y-%m-%d %H:%M:%S"
+    # Return UNIX timestamp
+    echo "${newest%.*}"
 }
 
 # Get the latest updated date of the Gnome-look.org theme
@@ -321,7 +321,57 @@ get_remote_theme_last_updated_date() {
         return 1
     fi
 
-    echo "$last_updated"
+    # Convert the date string to UNIX timestamp
+    # API returns format like "2022-01-07 09:15:30"
+    date -d "$last_updated" +%s
+}
+
+# Update extracted theme timestamp to match remote
+update_theme_timestamp() {
+    local type="$1"
+    local id="$2"
+    
+    # Use current system time for timestamp
+    local now=$(date +%s)
+    
+    if [[ -d "$VAULT/$type/$id" ]]; then
+        # Update all extracted directories in the ID folder
+        # This handles cases where an archive extracts multiple directories (e.g. Theme and Theme-Dark)
+        find "$VAULT/$type/$id" -mindepth 1 -maxdepth 1 -type d | while read -r dir; do
+            # Recursively update all files and the directory itself
+            # Use -h to handle symlinks without following them
+            find "$dir" -exec touch -h -d "@$now" {} + 2>/dev/null || true
+        done
+        info "Updated local timestamp to current time."
+    fi
+}
+
+# Clean old theme versions
+clean_theme() {
+    local type="$1"
+    local id="$2"
+    local name="$3"
+    
+    info "Cleaning up old version of $type theme: $name..."
+    
+    # Remove from vault
+    if [[ -d "$VAULT/$type/$id" ]]; then
+        rm -rf "$VAULT/$type/$id"
+        info "Removed old $type theme from vault."
+    fi
+    
+    # Remove from installation directory
+    local install_dir=""
+    case "$type" in
+        "gtk") install_dir="$THEMES_DIR" ;;
+        "cursor") install_dir="$CURSORS_DIR" ;;
+        "icon") install_dir="$ICONS_DIR" ;;
+    esac
+    
+    if [[ -n "$install_dir" && -d "$install_dir/$name" ]]; then
+        rm -rf "$install_dir/$name"
+        info "Removed old $type theme from $install_dir."
+    fi
 }
 
 # Download the theme
@@ -463,8 +513,10 @@ install_single_component() {
     local need_download=false
     
     if is_in_vault "$type" "$theme_name" "$id"; then
-        if [[ -n "$local_updated" && "$remote_updated" > "$local_updated" ]]; then
+        if [[ -n "$local_updated" && "$remote_updated" -gt "$local_updated" ]]; then
             info "$type theme is out of date. Downloading..."
+            local folder_name=$(get_extracted_dir_name "$type" "$id")
+            clean_theme "$type" "$id" "$folder_name"
             need_download=true
         else
             info "$type theme is up to date."
@@ -480,6 +532,7 @@ install_single_component() {
         info "$type theme downloaded."
         extract_theme "$type" "$chosen_file" "$id"
         info "$type theme extracted."
+        update_theme_timestamp "$type" "$id"
     fi
     
     # Get the actual extracted directory name
@@ -520,6 +573,34 @@ apply_cursor() {
     gsettings set org.gnome.desktop.interface cursor-theme "$cursor_name"
 }
 
+# Check if icon cache is possible
+can_cache_icons() {
+    local icon_name="$1"
+    
+    if [[ -f "$ICONS_DIR/$icon_name/index.theme" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Update icon cache
+cache_icons() {
+    local icon_name="$1"
+    
+    # Try gtk-update-icon-cache
+    if command -v gtk-update-icon-cache &>/dev/null; then
+        info "Updating icon cache with gtk3 apps..."
+        gtk-update-icon-cache -f -t "$ICONS_DIR/$icon_name" 2>/dev/null || warn "gtk-update-icon-cache failed."
+    fi
+    
+    # Try gtk4-update-icon-cache
+    if command -v gtk4-update-icon-cache &>/dev/null; then
+        info "Updating icon cache with gtk4 apps..."
+        gtk4-update-icon-cache -f -t "$ICONS_DIR/$icon_name" 2>/dev/null || warn "gtk4-update-icon-cache failed."
+    fi
+}
+
 # Install icon
 install_icon() {
     local icon_name="$1"
@@ -530,6 +611,11 @@ install_icon() {
 
     # copy icon to icon directory
     cp -r "$VAULT/icon/$id/$icon_name" "$ICONS_DIR/$icon_name"
+    
+    # Cache icons if possible
+    if can_cache_icons "$icon_name"; then
+        cache_icons "$icon_name"
+    fi
 }
 
 # Apply icon
@@ -710,8 +796,9 @@ manage_component() {
     local need_download=false
     
     if is_in_vault "$type" "$name" "$id"; then
-        if [[ -n "$local_updated" && "$remote_updated" > "$local_updated" ]]; then
+        if [[ -n "$local_updated" && "$remote_updated" -gt "$local_updated" ]]; then
             info "$type theme is out of date. Downloading..."
+            clean_theme "$type" "$id" "$name"
             need_download=true
         else
             info "$type theme is up to date."
@@ -725,6 +812,9 @@ manage_component() {
         download_theme "$json" "$file" "$type" "$id"
         info "$type theme downloaded."
         extract_theme "$type" "$file" "$id"
+        
+        # Update the extracted directory timestamp to match remote
+        update_theme_timestamp "$type" "$id"
     fi
     
     # Always install and apply to ensure consistency
@@ -798,7 +888,7 @@ WALLPAPER_LIGHT_URL=$(read_value  ".wallpaper.lightURL" "$chosen")
 WALLPAPER_DARK_FILE=$(read_value  ".wallpaper.dark"     "$chosen")
 WALLPAPER_DARK_URL=$(read_value   ".wallpaper.darkURL"  "$chosen")
 
-info "You selecthed $chosen theme package"
+info "You selected $chosen theme package"
 info "These themes will be applied:"
 info "  $GTK_NAME"
 info "  $CURSOR_NAME"

@@ -25,7 +25,7 @@ The script will automatically install missing dependencies
 
 ```bash
 # Download the script
-curl -O https://raw.githubusercontent.com/yourusername/gnome-theme-switcher/main/theme-switcher.sh
+curl -O https://raw.githubusercontent.com/nalinduash/Theme-Switcher/main/theme-switcher.sh
 
 # Make it executable
 chmod +x theme-switcher.sh
@@ -41,10 +41,10 @@ theme-switcher
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/gnome-theme-switcher.git
+git clone https://github.com/nalinduash/Theme-Switcher.git
 
 # Navigate to directory
-cd gnome-theme-switcher
+cd Theme-Switcher
 
 # Make it executable
 chmod +x theme-switcher.sh
