@@ -1,10 +1,9 @@
 #!/bin/bash
-set -e
 
 # GNOME Theme Switcher 
 # A comprehensive tool for managing GNOME themes, cursors, and icons at once
 # Author: Nalindu Ashirwada
-# Version: 1.0
+# Version: 1.5
 
 # Script configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,6 +12,8 @@ THEMES_DIR="${HOME}/.local/share/themes"
 ICONS_DIR="${HOME}/.local/share/icons"
 CURSORS_DIR="${HOME}/.local/share/icons"
 WALLPAPERS_DIR="${HOME}/Pictures/Wallpapers"
+HISTORY_FILE="$VAULT/history.json"
+FILES_JSON="$VAULT/files.json"
 DATA_JSON='{
     "Dracula": {
         "gtk": {
@@ -121,7 +122,7 @@ readonly BOLD='\033[1m'
 readonly RESET='\033[0m'
 
 
-# Messages
+#  <========= Messages =========>
 error(){
     local msg="$1"
     echo -e "${RED}${BOLD}[ERROR]${RESET} ${msg}"
@@ -146,120 +147,113 @@ header(){
     local title="$1"
     echo -e "\n${BOLD}${BLUE}━━━ ${title} ━━━${RESET}\n"
 }
+#  <========= END of Messages =========>
 
 
-## Helper functions
-# Check for dependencies
-check_dependencies(){
-    # Detect package manager and distribution
-    local pkg_manager=""
-    local install_cmd=""
-    
+
+#  <========= System & Dependency Management =========>
+# Detect package manager and return manager name and install command
+detect_package_manager() {
     if command -v dnf &>/dev/null; then
-        pkg_manager="dnf"
-        install_cmd="sudo dnf install -yq"
+        echo "dnf|sudo dnf install -yq"
     elif command -v apt &>/dev/null; then
-        pkg_manager="apt"
-        install_cmd="sudo apt install -y"
+        echo "apt|sudo apt install -y"
     elif command -v pacman &>/dev/null; then
-        pkg_manager="pacman"
-        install_cmd="sudo pacman -S --noconfirm"
+        echo "pacman|sudo pacman -S --noconfirm"
     elif command -v zypper &>/dev/null; then
-        pkg_manager="zypper"
-        install_cmd="sudo zypper install -y"
+        echo "zypper|sudo zypper install -y"
     else
+        return 1
+    fi
+}
+
+# Setup gum repository for apt-based systems
+setup_gum_repository() {
+    if [[ ! -f /etc/apt/sources.list.d/charm.list ]]; then
+        sudo mkdir -p /etc/apt/keyrings
+        curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
+        sudo apt update
+    fi
+}
+
+# Check and install a single dependency
+check_and_install_dependency() {
+    local cmd="$1"
+    local package="$2"
+    local pkg_manager="$3"
+    local install_cmd="$4"
+    
+    if ! command -v "$cmd" &>/dev/null; then
+        warn "$cmd is required but not installed. Installing..."
+        
+        # Special handling for gum on apt
+        if [[ "$cmd" == "gum" && "$pkg_manager" == "apt" ]]; then
+            setup_gum_repository
+        fi
+        
+        $install_cmd "$package"
+    fi
+}
+
+# Get package name for gsettings based on package manager
+get_gsettings_package() {
+    local pkg_manager="$1"
+    
+    case "$pkg_manager" in
+        "dnf") echo "glib2" ;;
+        "apt") echo "libglib2.0-bin" ;;
+        "pacman") echo "glib2" ;;
+        "zypper") echo "glib2-tools" ;;
+        *) echo "glib2" ;;
+    esac
+}
+
+# Check for all required dependencies
+check_dependencies() {
+    local pkg_info
+    pkg_info=$(detect_package_manager)
+    
+    if [[ $? -ne 0 ]]; then
         error "Unsupported package manager. Please install dependencies manually:"
         error "  - jq, gum, curl, tar, unzip, glib2 (for gsettings)"
         exit 1
     fi
     
+    IFS='|' read -r pkg_manager install_cmd <<< "$pkg_info"
     info "Detected package manager: $pkg_manager"
     
-    # Check and install jq
-    if ! command -v jq &>/dev/null; then
-        warn "jq is required but not installed. Installing..."
-        $install_cmd jq
-    fi
+    # Check and install each dependency
+    check_and_install_dependency "jq" "jq" "$pkg_manager" "$install_cmd"
+    check_and_install_dependency "gum" "gum" "$pkg_manager" "$install_cmd"
+    check_and_install_dependency "curl" "curl" "$pkg_manager" "$install_cmd"
+    check_and_install_dependency "tar" "tar" "$pkg_manager" "$install_cmd"
+    check_and_install_dependency "unzip" "unzip" "$pkg_manager" "$install_cmd"
     
-    # Check and install gum
-    if ! command -v gum &>/dev/null; then
-        warn "gum is required but not installed. Installing..."
-        case "$pkg_manager" in
-            "dnf")
-                $install_cmd gum
-                ;;
-            "apt")
-                # gum requires adding charm repository for Debian/Ubuntu
-                if [[ ! -f /etc/apt/sources.list.d/charm.list ]]; then
-                    sudo mkdir -p /etc/apt/keyrings
-                    curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
-                    echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
-                    sudo apt update
-                fi
-                $install_cmd gum
-                ;;
-            "pacman")
-                $install_cmd gum
-                ;;
-            "zypper")
-                $install_cmd gum
-                ;;
-        esac
-    fi
-    
-    # Check and install curl
-    if ! command -v curl &>/dev/null; then
-        warn "curl is required but not installed. Installing..."
-        $install_cmd curl
-    fi
-    
-    # Check and install tar (usually pre-installed)
-    if ! command -v tar &>/dev/null; then
-        warn "tar is required but not installed. Installing..."
-        $install_cmd tar
-    fi
-    
-    # Check and install unzip
-    if ! command -v unzip &>/dev/null; then
-        warn "unzip is required but not installed. Installing..."
-        $install_cmd unzip
-    fi
-    
-    # Check and install gsettings (part of glib2)
-    if ! command -v gsettings &>/dev/null; then
-        warn "gsettings is required but not installed. Installing..."
-        case "$pkg_manager" in
-            "dnf")
-                $install_cmd glib2
-                ;;
-            "apt")
-                $install_cmd libglib2.0-bin
-                ;;
-            "pacman")
-                $install_cmd glib2
-                ;;
-            "zypper")
-                $install_cmd glib2-tools
-                ;;
-        esac
-    fi
+    # gsettings requires special package name handling
+    local gsettings_pkg=$(get_gsettings_package "$pkg_manager")
+    check_and_install_dependency "gsettings" "$gsettings_pkg" "$pkg_manager" "$install_cmd"
     
     success "All dependencies are installed!"
 }
+#  <========= END of System & Dependency Management =========>
 
+
+
+#  <========= JSON & Data Functions =========>
 # Get theme package names
-get_theme_names(){
+get_theme_package_names(){
     echo "$DATA_JSON" | jq -r 'keys[]'
 }
 
-# Parse values from the data.json to variables
+# Get key values from the data.json for relevant theme package
 read_value(){
     local key="$1"
     local themePackage="$2"
-    echo "$DATA_JSON" | jq -er ".[\"$themePackage\"]$key"
+    echo "$DATA_JSON" | jq -er ".\"$themePackage\"$key"
 }
 
-#Load json data file from the gnome-look-org
+# Load json data file from the gnome-look-org
 load_json(){
     local id="$1"
 
@@ -272,6 +266,41 @@ load_json(){
     echo "$json"
 }
 
+# Select the name/s of the theme file/s from available files in JSON
+select_theme_file() {
+    local json="$1"
+    local id="$2"
+    
+    # Get list of active files
+    local files
+    files=$(echo "$json" | jq -r '.files[] | select(.active == "1") | .name')
+    
+    if [[ -z "$files" ]]; then
+        error "No active files found for ID $id"
+        return 1
+    fi
+    
+    # Count files and let user choose if multiple
+    local file_count
+    file_count=$(echo "$files" | wc -l)
+    
+    if [[ "$file_count" -gt 1 ]]; then
+        echo "$files" | gum choose --header "Pick a file for this theme:"
+    else
+        echo "$files"
+    fi
+}
+
+# Derive theme name from filename by getting the name before the dot
+derive_theme_name() {
+    local filename="$1"
+    echo "${filename%%.*}"
+}
+#  <========= END of JSON & Data Functions =========>
+
+
+
+#  <========= Vault & Storage Functions =========>
 # Check if the theme is in vault
 is_in_vault(){
     local type="$1"
@@ -285,6 +314,42 @@ is_in_vault(){
     return 1
 }
 
+# Get all extracted directory names for a theme (handles variants like light/dark)
+get_extracted_dir_names() {
+    local type="$1"
+    local id="$2"
+    
+    # Find all directories in the vault for this type/id (excluding the archive file)
+    local dir_names=$(find "$VAULT/$type/$id" -mindepth 1 -maxdepth 1 -type d -printf "%f\n")
+    
+    if [[ -z "$dir_names" ]]; then
+        error "Could not find extracted directories in $VAULT/$type/$id"
+        return 1
+    fi
+    
+    echo "$dir_names"
+}
+
+# Get the primary (first) extracted directory name - used for applying themes
+get_primary_dir_name() {
+    local type="$1"
+    local id="$2"
+    
+    # Get all directories and return the first one
+    local dir_name=$(get_extracted_dir_names "$type" "$id" | head -n 1)
+    
+    if [[ -z "$dir_name" ]]; then
+        error "Could not find primary directory in $VAULT/$type/$id"
+        return 1
+    fi
+    
+    echo "$dir_name"
+}
+#  <========= END of Vault & Storage Functions =========>
+
+
+
+#  <========= Timestamp & Update Functions =========>
 # Get the latest updated date of the local theme
 get_local_theme_last_updated_date() {
     local dir="$1"
@@ -346,21 +411,54 @@ update_theme_timestamp() {
     fi
 }
 
+# Determine if theme needs to be downloaded
+should_download_theme() {
+    local type="$1"
+    local id="$2"
+    local name="$3"
+    local json="$4"
+    local file="$5"
+    
+    # If not in vault, download is needed
+    if ! is_in_vault "$type" "$name" "$id"; then
+        info "$type theme is not in vault. Downloading..."
+        return 0
+    fi
+    
+    # If in vault, check if update is needed
+    local local_updated=""
+    if [[ -d "$VAULT/$type/$id/$name" ]]; then
+        local_updated=$(get_local_theme_last_updated_date "$VAULT/$type/$id/$name") || true
+    fi
+
+    # Get remote update timestamp
+    local remote_updated=""
+    remote_updated=$(get_remote_theme_last_updated_date "$json" "$file")
+    
+    if [[ -n "$local_updated" && "$remote_updated" -gt "$local_updated" ]]; then
+        info "$type theme is out of date. Downloading..."
+        return 0
+    fi
+    
+    info "$type theme is up to date."
+    return 1
+}
+#  <========= END of Timestamp & Update Functions =========>
+
+
+
+#  <========= Download & Extraction Functions =========>
 # Clean old theme versions
 clean_theme() {
     local type="$1"
     local id="$2"
-    local name="$3"
     
-    info "Cleaning up old version of $type theme: $name..."
+    info "Cleaning up old version of $type theme (ID: $id)..."
     
-    # Remove from vault
-    if [[ -d "$VAULT/$type/$id" ]]; then
-        rm -rf "$VAULT/$type/$id"
-        info "Removed old $type theme from vault."
-    fi
+    # Get all folders for this theme from files.json
+    local folders=$(get_theme_folders "$type" "$id")
     
-    # Remove from installation directory
+    # Determine installation directory
     local install_dir=""
     case "$type" in
         "gtk") install_dir="$THEMES_DIR" ;;
@@ -368,9 +466,25 @@ clean_theme() {
         "icon") install_dir="$ICONS_DIR" ;;
     esac
     
-    if [[ -n "$install_dir" && -d "$install_dir/$name" ]]; then
-        rm -rf "$install_dir/$name"
-        info "Removed old $type theme from $install_dir."
+    # Remove each tracked folder from installation directory
+    if [[ -n "$folders" && -n "$install_dir" ]]; then
+        while IFS= read -r folder; do
+            if [[ -n "$folder" && -d "$install_dir/$folder" ]]; then
+                rm -rf "$install_dir/$folder"
+            fi
+        done <<< "$folders"
+    fi
+    
+    # Remove from vault
+    if [[ -d "$VAULT/$type/$id" ]]; then
+        rm -rf "$VAULT/$type/$id"
+    fi
+    
+    # Remove entry from files.json
+    if [[ -f "$FILES_JSON" ]]; then
+        local updated_json=$(jq --arg type "$type" --arg id "$id" \
+            'del(.[$type][$id])' "$FILES_JSON")
+        echo "$updated_json" > "$FILES_JSON"
     fi
 }
 
@@ -395,6 +509,8 @@ download_theme() {
 
     # Create directory if it doesn't exist
     mkdir -p "$VAULT/$type/$id"
+
+    # Delete file if exist
     if [[ -f "$VAULT/$type/$id/$file" ]]; then
         rm "$VAULT/$type/$id/$file"
     fi
@@ -426,8 +542,32 @@ extract_theme() {
             return 1
             ;;
     esac
-}   
+}
 
+# Download and prepare theme (download, extract, update timestamp, track files)
+download_and_prepare_theme() {
+    local type="$1"
+    local id="$2"
+    local json="$3"
+    local file="$4"
+    
+    download_theme "$json" "$file" "$type" "$id"
+    info "$type theme downloaded."
+    
+    extract_theme "$type" "$file" "$id"
+    info "$type theme extracted."
+    
+    update_theme_timestamp "$type" "$id"
+    update_files_json "$type" "$id"
+    
+    # Return all extracted directory names (for caching icons on all variants)
+    get_extracted_dir_names "$type" "$id"
+}
+#  <========= END of Download & Extraction Functions =========>
+
+
+
+#  <========= CLI & Help Functions =========>
 # Show help message
 show_help() {
     echo "Usage: $0 [OPTIONS]"
@@ -436,36 +576,174 @@ show_help() {
     echo "  -g <ID>    Install GTK theme by GNOME-Look ID"
     echo "  -c <ID>    Install cursor theme by GNOME-Look ID"
     echo "  -i <ID>    Install icon theme by GNOME-Look ID"
+    echo "  -r         Restore theme from history"
     echo "  -h         Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0 -g 2315765    # Install GTK theme with ID 2315765"
     echo "  $0 -c 1411743    # Install cursor theme with ID 1411743"
     echo "  $0 -i 1686927    # Install icon theme with ID 1686927"
+    echo "  $0 -r            # Restore theme from history"
     echo ""
     echo "If no options are provided, the script runs in interactive mode."
 }
+#  <========= END of CLI & Help Functions =========>
 
-# Get the name of the extracted directory
-get_extracted_dir_name() {
-    local type="$1"
-    local id="$2"
+
+
+#  <========= History Management Functions =========>
+# Get currently applied themes from gsettings
+get_current_themes() {
+    local gtk_theme=""
+    local cursor_theme=""
+    local icon_theme=""
     
-    # Find the first directory in the vault for this type/id (excluding the archive file)
-    local dir_name=$(find "$VAULT/$type/$id" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | head -n 1)
+    # Get GTK theme (fallback to empty if not set)
+    gtk_theme=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | tr -d "'") || gtk_theme="Adwaita"
     
-    if [[ -z "$dir_name" ]]; then
-        error "Could not find extracted directory in $VAULT/$type/$id"
+    # Get cursor theme
+    cursor_theme=$(gsettings get org.gnome.desktop.interface cursor-theme 2>/dev/null | tr -d "'") || cursor_theme="Adwaita"
+    
+    # Get icon theme
+    icon_theme=$(gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'") || icon_theme="Adwaita"
+    
+    echo "${gtk_theme}|${cursor_theme}|${icon_theme}"
+}
+
+# Save current theme configuration to history
+save_theme_to_history() {
+    local gtk_name="$1"
+    local cursor_name="$2"
+    local icon_name="$3"
+    
+    local timestamp=$(date -Iseconds)
+    local display_date=$(date "+%Y-%m-%d %H:%M")
+    
+    # Create display string
+    local display_label="${display_date} - GTK: ${gtk_name}, Cursor: ${cursor_name}, Icon: ${icon_name}"
+    
+    # Create new entry
+    local new_entry=$(jq -n \
+        --arg ts "$timestamp" \
+        --arg gtk "$gtk_name" \
+        --arg cursor "$cursor_name" \
+        --arg icon "$icon_name" \
+        --arg display "$display_label" \
+        '{
+            timestamp: $ts,
+            gtk: $gtk,
+            cursor: $cursor,
+            icon: $icon,
+            display: $display
+        }')
+    
+    # Load existing history or create empty array
+    local history="[]"
+    if [[ -f "$HISTORY_FILE" ]]; then
+        history=$(load_history)
+    fi
+    
+    # Append new entry and keep last 50 entries
+    history=$(echo "$history" | jq --argjson entry "$new_entry" '. + [$entry] | .[-50:]')
+    
+    # Save to file
+    echo "$history" > "$HISTORY_FILE"
+    
+    info "Theme configuration saved to history."
+}
+
+# Load history from JSON file
+load_history() {    
+    if [[ ! -f "$HISTORY_FILE" ]]; then
         return 1
     fi
     
-    echo "$dir_name"
+    cat "$HISTORY_FILE"
 }
 
-# Install a single component by ID (with vault checking and update logic)
-install_single_component() {
+# Display history menu and let user select
+display_history_menu() {
+    local history=$(load_history)
+    
+    if [[ -z "$history" || "$history" == "[]" ]]; then
+        error "No theme history found."
+        return 1
+    fi
+    
+    # Extract display labels for gum (in reverse order - newest first)
+    local display_options=$(echo "$history" | jq -r '.[] | .display' | tac)
+    
+    if [[ -z "$display_options" ]]; then
+        error "No valid history entries found."
+        return 1
+    fi
+    
+    # Let user choose
+    local selected_display=$(echo "$display_options" | gum choose --header "Select a theme configuration to restore:")
+    
+    if [[ -z "$selected_display" ]]; then
+        warn "No selection made."
+        return 1
+    fi
+    
+    # Find the matching entry in history
+    echo "$history" | jq --arg display "$selected_display" '.[] | select(.display == $display)'
+}
+
+# Restore theme from history entry
+restore_theme_from_history() {
+    local entry="$1"
+    
+    local gtk_name=$(echo "$entry" | jq -r '.gtk')
+    local cursor_name=$(echo "$entry" | jq -r '.cursor')
+    local icon_name=$(echo "$entry" | jq -r '.icon')
+    
+    header "Restoring Theme Configuration"
+    info "GTK: $gtk_name"
+    info "Cursor: $cursor_name"
+    info "Icon: $icon_name"
+    
+    # Apply GTK theme
+    apply_gtk "$gtk_name"
+    success "GTK theme applied: $gtk_name"
+    
+    # Apply cursor theme
+    apply_cursor "$cursor_name"
+    success "Cursor theme applied: $cursor_name"
+
+    # Apply icon theme
+    apply_icon "$icon_name"
+    success "Icon theme applied: $icon_name"
+    
+    success "Theme configuration restored successfully!"
+}
+
+# Main function to handle history restoration
+restore_from_history() {    
+    header "Theme History"
+    
+    local selected_entry
+    selected_entry=$(display_history_menu)
+    
+    if [[ $? -ne 0 ]]; then
+        error "Failed to select history entry."
+        info "Aborting... Byeeeee"
+        exit 0
+    fi
+    
+    restore_theme_from_history "$selected_entry"
+}
+#  <========= END of History Management Functions =========>
+
+
+
+#  <========= Theme Processing Functions =========>
+# Process and install a theme component (unified function for CLI and interactive modes)
+process_theme_component() {
     local type="$1"
     local id="$2"
+    local file="${3:-}"  # Optional: if not provided, user will select
+    local name="${4:-}"  # Optional: if not provided, derived from file
     
     info "Processing $type theme with ID: $id"
     
@@ -473,71 +751,39 @@ install_single_component() {
     local json
     json=$(load_json "$id")
     
-    # Get list of active files
-    local files
-    files=$(echo "$json" | jq -r '.files[] | select(.active == "1") | .name')
-    
-    if [[ -z "$files" ]]; then
-        error "No active files found for ID $id"
-        exit 1
-    fi
-    
-    # Count files and let user choose if multiple
-    local file_count
-    file_count=$(echo "$files" | wc -l)
-    
-    local chosen_file
-    if [[ "$file_count" -gt 1 ]]; then
-        chosen_file=$(echo "$files" | gum choose --header "Pick a file for this theme:")
-    else
-        chosen_file="$files"
-    fi
-    
-    if [[ -z "$chosen_file" ]]; then
-        error "No file selected."
-        exit 1
-    fi
-    
-    # Derive theme name from filename (remove extension)
-    local theme_name="${chosen_file%%.*}"
-    
-    # Check if theme exists in vault and compare timestamps
-    local remote_updated
-    remote_updated=$(get_remote_theme_last_updated_date "$json" "$chosen_file")
-    
-    local local_updated=""
-    if [[ -d "$VAULT/$type/$id/$theme_name" ]]; then
-        local_updated=$(get_local_theme_last_updated_date "$VAULT/$type/$id/$theme_name") || true
-    fi
-    
-    local need_download=false
-    
-    if is_in_vault "$type" "$theme_name" "$id"; then
-        if [[ -n "$local_updated" && "$remote_updated" -gt "$local_updated" ]]; then
-            info "$type theme is out of date. Downloading..."
-            local folder_name=$(get_extracted_dir_name "$type" "$id")
-            clean_theme "$type" "$id" "$folder_name"
-            need_download=true
-        else
-            info "$type theme is up to date."
+    # Select file if not provided
+    if [[ -z "$file" ]]; then
+        file=$(select_theme_file "$json" "$id")
+        if [[ -z "$file" ]]; then
+            error "No file selected."
+            exit 1
         fi
-    else
-        info "$type theme is not in vault. Downloading..."
-        need_download=true
     fi
     
-    # Download and extract if needed
-    if [[ "$need_download" == "true" ]]; then
-        download_theme "$json" "$chosen_file" "$type" "$id"
-        info "$type theme downloaded."
-        extract_theme "$type" "$chosen_file" "$id"
-        info "$type theme extracted."
-        update_theme_timestamp "$type" "$id"
+    # Derive theme name if not provided
+    if [[ -z "$name" ]]; then
+        name=$(derive_theme_name "$file")
     fi
     
-    # Get the actual extracted directory name
+    # Determine if download is needed
+    if should_download_theme "$type" "$id" "$name" "$json" "$file"; then
+        clean_theme "$type" "$id"
+        local extracted_names
+        extracted_names=$(download_and_prepare_theme "$type" "$id" "$json" "$file")
+        
+        # Cache icons if this is an icon theme (for all variants)
+        if [[ "$type" == "icon" ]]; then
+            while IFS= read -r dir_name; do
+                if [[ -n "$dir_name" ]]; then
+                    cache_icons_if_needed "$dir_name"
+                fi
+            done <<< "$extracted_names"
+        fi
+    fi
+    
+    # Get the primary extracted directory name for installation and application
     local extracted_name
-    extracted_name=$(get_extracted_dir_name "$type" "$id")
+    extracted_name=$(get_primary_dir_name "$type" "$id")
     
     if [[ -z "$extracted_name" ]]; then
         error "Could not determine extracted directory name."
@@ -554,25 +800,112 @@ install_single_component() {
     success "$type theme ($extracted_name) installed and applied!"
 }
 
+# Save a single component change to history
+save_component_to_history() {
+    local type="$1"
+    local theme_name="$2"
+    
+    # Get current theme states
+    local current_themes=$(get_current_themes)
+    IFS='|' read -r current_gtk current_cursor current_icon <<< "$current_themes"
+    
+    # Use the newly applied theme for this type, keep others from current state
+    case "$type" in
+        "gtk")
+            save_theme_to_history "$theme_name" "$current_cursor" "$current_icon"
+            ;;
+        "cursor")
+            save_theme_to_history "$current_gtk" "$theme_name" "$current_icon"
+            ;;
+        "icon")
+            save_theme_to_history "$current_gtk" "$current_cursor" "$theme_name"
+            ;;
+    esac
+}
 
+# Install a single component by ID (CLI mode wrapper)
+install_single_component() {
+    local type="$1"
+    local id="$2"
+    process_theme_component "$type" "$id"
+}
+#  <========= END of Theme Processing Functions =========>
+
+
+
+#  <========= Component Installation Functions =========>
 # Install cursor
 install_cursor() {
     local cursor_name="$1"
     local id="$2"
 
-    # delete if exist
-    rm -rf "$CURSORS_DIR/$cursor_name"
-
-    # copy cursor to cursor directory
-    cp -r "$VAULT/cursor/$id/$cursor_name" "$CURSORS_DIR/$cursor_name"
-}
+    # Get all folders for this cursor theme from files.json
+    local folders=$(get_theme_folders "cursor" "$id")
     
-# Apply cursor
-apply_cursor() {
-    local cursor_name="$1"
-    gsettings set org.gnome.desktop.interface cursor-theme "$cursor_name"
+    if [[ -z "$folders" ]]; then
+        # Fallback to single folder if files.json not populated yet
+        rm -rf "$CURSORS_DIR/$cursor_name"
+        cp -r "$VAULT/cursor/$id/$cursor_name" "$CURSORS_DIR/$cursor_name"
+    else
+        # Copy all tracked folders
+        while IFS= read -r folder; do
+            if [[ -n "$folder" && -d "$VAULT/cursor/$id/$folder" ]]; then
+                rm -rf "$CURSORS_DIR/$folder"
+                cp -r "$VAULT/cursor/$id/$folder" "$CURSORS_DIR/$folder"
+            fi
+        done <<< "$folders"
+    fi
 }
 
+# Install GTK theme
+install_gtk() {
+    local theme_name="$1"
+    local id="$2"
+
+    # Get all folders for this GTK theme from files.json
+    local folders=$(get_theme_folders "gtk" "$id")
+    
+    if [[ -z "$folders" ]]; then
+        # Fallback to single folder if files.json not populated yet
+        rm -rf "$THEMES_DIR/$theme_name"
+        cp -r "$VAULT/gtk/$id/$theme_name" "$THEMES_DIR/$theme_name"
+    else
+        # Copy all tracked folders
+        while IFS= read -r folder; do
+            if [[ -n "$folder" && -d "$VAULT/gtk/$id/$folder" ]]; then
+                rm -rf "$THEMES_DIR/$folder"
+                cp -r "$VAULT/gtk/$id/$folder" "$THEMES_DIR/$folder"
+            fi
+        done <<< "$folders"
+    fi
+}
+
+# Install icon
+install_icon() {
+    local icon_name="$1"
+    local id="$2"
+
+    # Get all folders for this icon theme
+    local folders=$(get_theme_folders "icon" "$id")
+    
+    if [[ -z "$folders" ]]; then
+        # Fallback to single folder if files.json not populated yet
+        rm -rf "$ICONS_DIR/$icon_name"
+        cp -r "$VAULT/icon/$id/$icon_name" "$ICONS_DIR/$icon_name"
+    else
+        # Copy all tracked folders
+        while IFS= read -r folder; do
+            if [[ -n "$folder" && -d "$VAULT/icon/$id/$folder" ]]; then
+                rm -rf "$ICONS_DIR/$folder"
+                cp -r "$VAULT/icon/$id/$folder" "$ICONS_DIR/$folder"
+            fi
+        done <<< "$folders"
+    fi
+}
+#  <========= END of Component Installation Functions =========>
+
+
+#  <========= Component Application Functions =========>
 # Check if icon cache is possible
 can_cache_icons() {
     local icon_name="$1"
@@ -601,21 +934,19 @@ cache_icons() {
     fi
 }
 
-# Install icon
-install_icon() {
+# Cache icons if index.theme exists
+cache_icons_if_needed() {
     local icon_name="$1"
-    local id="$2"
-
-    # delete if exist
-    rm -rf "$ICONS_DIR/$icon_name"
-
-    # copy icon to icon directory
-    cp -r "$VAULT/icon/$id/$icon_name" "$ICONS_DIR/$icon_name"
     
-    # Cache icons if possible
     if can_cache_icons "$icon_name"; then
         cache_icons "$icon_name"
     fi
+}
+
+# Apply cursor
+apply_cursor() {
+    local cursor_name="$1"
+    gsettings set org.gnome.desktop.interface cursor-theme "$cursor_name"
 }
 
 # Apply icon
@@ -624,6 +955,63 @@ apply_icon() {
     gsettings set org.gnome.desktop.interface icon-theme "$icon_name"
 }
 
+# Apply GTK3 theme
+apply_gtk3() {
+    local theme_name="$1"
+    gsettings set org.gnome.desktop.interface gtk-theme "$theme_name"
+}
+
+# Apply Shell theme
+apply_shell() {
+    local theme_name="$1"
+    gsettings set org.gnome.shell.extensions.user-theme name "$theme_name"
+}
+
+# Apply GTK4 theme (libadwaita bypass)
+apply_gtk4() {
+    local theme_name="$1"
+    local config_dir="$HOME/.config"
+
+    # Create gtk-4.0 directory if it doesn't exist
+    mkdir -p "$config_dir/gtk-4.0"
+    
+    # Remove previous theme config
+    rm -rf "$config_dir/gtk-4.0/gtk.css"
+    rm -rf "$config_dir/gtk-4.0/gtk-dark.css"
+    rm -rf "$config_dir/gtk-4.0/assets"
+    rm -rf "$config_dir/assets"
+
+    # Link new theme files
+    if [[ -f "$THEMES_DIR/$theme_name/gtk-4.0/gtk.css" ]]; then
+        ln -s "$THEMES_DIR/$theme_name/gtk-4.0/gtk.css" "$config_dir/gtk-4.0/gtk.css"
+    fi
+    
+    if [[ -f "$THEMES_DIR/$theme_name/gtk-4.0/gtk-dark.css" ]]; then
+        ln -s "$THEMES_DIR/$theme_name/gtk-4.0/gtk-dark.css" "$config_dir/gtk-4.0/gtk-dark.css"
+    fi
+    
+    if [[ -d "$THEMES_DIR/$theme_name/gtk-4.0/assets" ]]; then
+        ln -s "$THEMES_DIR/$theme_name/gtk-4.0/assets" "$config_dir/gtk-4.0/assets"
+    fi
+    
+    if [[ -d "$THEMES_DIR/$theme_name/assets" ]]; then
+        ln -s "$THEMES_DIR/$theme_name/assets" "$config_dir/assets"
+    fi
+}
+
+
+# Apply all GTK related themes
+apply_gtk() {
+    local theme_name="$1"
+    apply_gtk3 "$theme_name"
+    apply_shell "$theme_name"
+    apply_gtk4 "$theme_name"
+}
+#  <========= END of Component Application Functions =========>
+
+
+
+#  <========= Wallpaper Management Functions =========>
 # Download wallpaper
 download_wallpaper() {
     local url="$1"
@@ -659,79 +1047,12 @@ apply_wallpaper() {
     gsettings set org.gnome.desktop.background picture-uri-dark "file://$WALLPAPERS_DIR/$dark_wallpaper"
 }
 
-# Install GTK theme
-install_gtk() {
-    local theme_name="$1"
-    local id="$2"
-
-    # delete if exist
-    rm -rf "$THEMES_DIR/$theme_name"
-
-    # copy theme to themes directory
-    cp -r "$VAULT/gtk/$id/$theme_name" "$THEMES_DIR/$theme_name"
-}
-
-# Apply GTK3 theme
-apply_gtk3() {
-    local theme_name="$1"
-    gsettings set org.gnome.desktop.interface gtk-theme "$theme_name"
-}
-
-# Apply Shell theme
-apply_shell() {
-    local theme_name="$1"
-    gsettings set org.gnome.shell.extensions.user-theme name "$theme_name"
-}
-
-# Apply GTK4 theme (libadwaita bypass)
-apply_gtk4() {
-    local theme_name="$1"
-    local config_dir="$HOME/.config"
-    
-    # Remove previous theme config
-    rm -rf "$config_dir/gtk-4.0/gtk.css"
-    rm -rf "$config_dir/gtk-4.0/gtk-dark.css"
-    rm -rf "$config_dir/gtk-4.0/assets"
-    rm -rf "$config_dir/assets"
-
-    # Create gtk-4.0 directory if it doesn't exist
-    mkdir -p "$config_dir/gtk-4.0"
-
-    # Link new theme files
-    if [[ -f "$THEMES_DIR/$theme_name/gtk-4.0/gtk.css" ]]; then
-        ln -s "$THEMES_DIR/$theme_name/gtk-4.0/gtk.css" "$config_dir/gtk-4.0/gtk.css"
-    fi
-    
-    if [[ -f "$THEMES_DIR/$theme_name/gtk-4.0/gtk-dark.css" ]]; then
-        ln -s "$THEMES_DIR/$theme_name/gtk-4.0/gtk-dark.css" "$config_dir/gtk-4.0/gtk-dark.css"
-    fi
-    
-    if [[ -d "$THEMES_DIR/$theme_name/gtk-4.0/assets" ]]; then
-        ln -s "$THEMES_DIR/$theme_name/gtk-4.0/assets" "$config_dir/gtk-4.0/assets"
-    fi
-    
-    if [[ -d "$THEMES_DIR/$theme_name/assets" ]]; then
-        ln -s "$THEMES_DIR/$theme_name/assets" "$config_dir/assets"
-    fi
-}
-
-
-# Apply all GTK related themes
-apply_gtk() {
-    local theme_name="$1"
-    apply_gtk3 "$theme_name"
-    apply_shell "$theme_name"
-    apply_gtk4 "$theme_name"
-}
-
-# Manage wallpapers
-manage_wallpapers() {
+# Download wallpapers
+download_wallpapers() {
     local light_file="$1"
     local light_url="$2"
     local dark_file="$3"
     local dark_url="$4"
-
-    info "Managing wallpapers..."
 
     # Check if wallpapers exist in vault
     if [[ -f "$VAULT/wallpaper/$light_file" ]] && [[ -f "$VAULT/wallpaper/$dark_file" ]]; then
@@ -743,93 +1064,126 @@ manage_wallpapers() {
         if [[ ! -f "$VAULT/wallpaper/$light_file" ]]; then
             info "Downloading light wallpaper..."
             download_wallpaper "$light_url" "$light_file" || exit 1
-            info "Light wallpaper downloaded."
         fi
         
         # Download dark wallpaper
         if [[ ! -f "$VAULT/wallpaper/$dark_file" ]]; then
             info "Downloading dark wallpaper..."
             download_wallpaper "$dark_url" "$dark_file" || exit 1
-            info "Dark wallpaper downloaded."
         fi
     fi
+}
 
-    # Install and apply wallpapers
+# Manage wallpapers
+manage_wallpapers() {
+    local light_file="$1"
+    local light_url="$2"
+    local dark_file="$3"
+    local dark_url="$4"
+
+    info "Managing wallpapers..."
+    download_wallpapers "$light_file" "$light_url" "$dark_file" "$dark_url"
     install_wallpaper "$light_file"
     install_wallpaper "$dark_file"
     apply_wallpaper "$light_file" "$dark_file"
     success "Wallpapers applied successfully!"
 }
+#  <========= END of Wallpaper Management Functions =========>
 
-# Generic component manager
-manage_component() {
-    local type="$1"
-    local id="$2"
-    local file="$3"
-    local name="$4"
-    
-    local install_func="install_${type}"
-    local apply_func="apply_${type}"
-    local dir_var=""
-    
-    # Determine directory variable based on type
-    case "$type" in
-        "gtk") dir_var="$THEMES_DIR" ;;
-        "cursor") dir_var="$CURSORS_DIR" ;; 
-        "icon") dir_var="$ICONS_DIR" ;;
-        *) error "Unknown component type: $type"; return 1 ;;
-    esac
-    
-    info "Managing $type theme: $name"
 
-    local json
-    json=$(load_json "$id")
-    
-    local remote_updated
-    remote_updated=$(get_remote_theme_last_updated_date "$json" "$file")
-    
-    local local_updated=""
-    if [[ -d "$VAULT/$type/$id/$name" ]]; then
-        local_updated=$(get_local_theme_last_updated_date "$VAULT/$type/$id/$name") || true
-    fi
 
-    local need_download=false
-    
-    if is_in_vault "$type" "$name" "$id"; then
-        if [[ -n "$local_updated" && "$remote_updated" -gt "$local_updated" ]]; then
-            info "$type theme is out of date. Downloading..."
-            clean_theme "$type" "$id" "$name"
-            need_download=true
-        else
-            info "$type theme is up to date."
-        fi
-    else
-        info "$type theme is not in vault. Downloading..."
-        need_download=true
-    fi
-    
-    if [[ "$need_download" == "true" ]]; then
-        download_theme "$json" "$file" "$type" "$id"
-        info "$type theme downloaded."
-        extract_theme "$type" "$file" "$id"
+#  <========= File Tracking Functions =========>
+create_history_file(){
+    if [[ ! -f "$HISTORY_FILE" ]]; then
+        touch "$HISTORY_FILE"
         
-        # Update the extracted directory timestamp to match remote
-        update_theme_timestamp "$type" "$id"
+        # Get current themes from gsettings
+        local current_themes=$(get_current_themes)
+        IFS='|' read -r gtk_theme cursor_theme icon_theme <<< "$current_themes"
+        
+        # Get current timestamp
+        local timestamp=$(date -Iseconds)
+        local display_date=$(date "+%Y-%m-%d %H:%M")
+        
+        # Create initial history entry with current themes
+        cat <<EOF > "$HISTORY_FILE"
+[
+  {
+    "timestamp": "$timestamp",
+    "gtk": "$gtk_theme",
+    "cursor": "$cursor_theme",
+    "icon": "$icon_theme",
+    "display": "$display_date - GTK: $gtk_theme, Cursor: $cursor_theme, Icon: $icon_theme"
+  }
+]
+EOF
     fi
-    
-    # Always install and apply to ensure consistency
-    $install_func "$name" "$id"
-    $apply_func "$name"
-    success "$type theme applied successfully!"
 }
 
-### Starting point
+# Create files.json if it doesn't exist
+create_files_json(){
+    if [[ ! -f "$VAULT/files.json" ]]; then
+        touch "$VAULT/files.json"
+        cat <<EOF > "$VAULT/files.json"
+{
+  "gtk": {},
+  "icon": {},
+  "cursor": {}
+}
+EOF
+        info "Created files.json tracking file."
+    fi
+}
+
+# Update files.json with extracted folder names
+update_files_json(){
+    local type="$1"
+    local id="$2"
+    
+    # Get all extracted directories for this theme
+    local folders=$(get_extracted_dir_names "$type" "$id" | jq -R . | jq -s .)
+    
+    if [[ -z "$folders" || "$folders" == "[]" ]]; then
+        warn "No folders found to track for $type/$id"
+        return 0
+    fi
+    
+    # Update the JSON file
+    local updated_json=$(jq --arg type "$type" --arg id "$id" --argjson folders "$folders" \
+        '.[$type][$id] = $folders' "$FILES_JSON")
+    
+    echo "$updated_json" > "$FILES_JSON"
+    info "Updated files.json: tracked folders for $type/$id"
+}
+
+# Get all folders for a theme from files.json
+get_theme_folders(){
+    local type="$1"
+    local id="$2"
+    
+    if [[ ! -f "$FILES_JSON" ]]; then
+        return 0
+    fi
+    
+    # Extract folder array for this theme
+    local folders=$(jq -r --arg type "$type" --arg id "$id" \
+        '.[$type][$id] // [] | .[]' "$FILES_JSON" 2>/dev/null)
+    
+    echo "$folders"
+}
+#  <========= END of File Tracking Functions =========>
+
+
+#  <========= Starting point =========>
+# Prepare
 mkdir -p $VAULT
+create_history_file
+create_files_json
 check_dependencies
 
 # Parse CLI arguments
 if [[ $# -gt 0 ]]; then
-    while getopts "g:c:i:h" opt; do
+    while getopts "g:c:i:rh" opt; do
         case $opt in
             g) 
                 install_single_component "gtk" "$OPTARG"
@@ -841,6 +1195,10 @@ if [[ $# -gt 0 ]]; then
                 ;;
             i) 
                 install_single_component "icon" "$OPTARG"
+                exit 0
+                ;;
+            r)
+                restore_from_history
                 exit 0
                 ;;
             h) 
@@ -865,7 +1223,7 @@ echo " \`--''  \`-\`-' '  '  \`-\`--'    '  '  \`-\`--''  '  \`-\`--'   \`-'  \`
 echo "                                                                                            ";
 echo "                                                                                            ";
 
-themes="$(get_theme_names)" || exit 1  
+themes="$(get_theme_package_names)" || exit 1  
 chosen="$(echo "$themes" | gum choose --header "Pick a theme package:")" || {
     error "No theme selected."
     exit 1
@@ -894,16 +1252,19 @@ info "  $GTK_NAME"
 info "  $CURSOR_NAME"
 info "  $ICON_NAME"
 
+# Save previous theme configuration to history
+save_theme_to_history "$GTK_NAME" "$CURSOR_NAME" "$ICON_NAME"
 
-### GTK Theme
-manage_component "gtk" "$GTK_ID" "$GTK_FILE" "$GTK_NAME"
+# GTK Theme
+process_theme_component "gtk" "$GTK_ID" "$GTK_FILE" "$GTK_NAME"
 
-### Cursor
-manage_component "cursor" "$CURSOR_ID" "$CURSOR_FILE" "$CURSOR_NAME"
+# Cursor
+process_theme_component "cursor" "$CURSOR_ID" "$CURSOR_FILE" "$CURSOR_NAME"
 
-### Icon
-manage_component "icon" "$ICON_ID" "$ICON_FILE" "$ICON_NAME"
+# Icon
+process_theme_component "icon" "$ICON_ID" "$ICON_FILE" "$ICON_NAME"
 
-### Wallpaper
+# Wallpaper
 manage_wallpapers "$WALLPAPER_LIGHT_FILE" "$WALLPAPER_LIGHT_URL" "$WALLPAPER_DARK_FILE" "$WALLPAPER_DARK_URL"
 success "Theme Switcher completed successfully!"
+#  <========= END =========>
