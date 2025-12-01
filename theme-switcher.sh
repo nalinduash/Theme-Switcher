@@ -229,12 +229,25 @@ check_dependencies() {
     check_and_install_dependency "curl" "curl" "$pkg_manager" "$install_cmd"
     check_and_install_dependency "tar" "tar" "$pkg_manager" "$install_cmd"
     check_and_install_dependency "unzip" "unzip" "$pkg_manager" "$install_cmd"
-    
+    check_and_install_dependency "gnome-extensions" "gnome-extensions" "$pkg_manager" "$install_cmd"
+    check_and_install_dependency "user-theme" "gnome-shell-extension-user-theme" "$pkg_manager" "$install_cmd"
+
     # gsettings requires special package name handling
     local gsettings_pkg=$(get_gsettings_package "$pkg_manager")
     check_and_install_dependency "gsettings" "$gsettings_pkg" "$pkg_manager" "$install_cmd"
     
+    enable_user_theme_extension
+
     success "All dependencies are installed!"
+}
+
+# Enable GNOME Shell user-theme extension
+enable_user_theme_extension() {    
+    if ! gnome-extensions info user-theme@gnome-shell-extensions.gcampax.github.com | grep -q "State: ENABLED"; then
+        info "Enabling user-theme extension..."
+        gnome-extensions enable user-theme@gnome-shell-extensions.gcampax.github.com
+        success "user-theme extension enabled!"
+    fi
 }
 #  <========= END of System & Dependency Management =========>
 
@@ -301,6 +314,13 @@ derive_theme_name() {
 
 
 #  <========= Vault & Storage Functions =========>
+# Prepare necessary folder to run this properly.
+prepare_folders(){
+    mkdir -p $VAULT
+    mkdir -P $THEMES_DIR
+    mkdir -P $ICONS_DIR
+}
+
 # Check if the theme is in vault
 is_in_vault(){
     local type="$1"
@@ -1176,7 +1196,7 @@ get_theme_folders(){
 
 #  <========= Starting point =========>
 # Prepare
-mkdir -p $VAULT
+prepare_folders
 create_history_file
 create_files_json
 check_dependencies
