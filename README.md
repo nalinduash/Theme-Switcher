@@ -21,8 +21,6 @@ The script will automatically install missing dependencies
 
 ## Download and Installation
 
-### Method 1: Direct Download
-
 ```bash
 # Download the script
 curl -O https://raw.githubusercontent.com/nalinduash/Theme-Switcher/main/theme-switcher.sh
@@ -31,30 +29,13 @@ curl -O https://raw.githubusercontent.com/nalinduash/Theme-Switcher/main/theme-s
 chmod +x theme-switcher.sh
 
 # Make it available in terminal
-cp theme-switcher.sh ~/.local/bin
+mkdir -p ~/.local/bin
+mv theme-switcher.sh ~/.local/bin/theme-switcher
 
 # Run it
 theme-switcher
 ```
 
-### Method 2: Clone Repository
-
-```bash
-# Clone the repository
-git clone https://github.com/nalinduash/Theme-Switcher.git
-
-# Navigate to directory
-cd Theme-Switcher
-
-# Make it executable
-chmod +x theme-switcher.sh
-
-# Make it available in terminal
-cp theme-switcher.sh ~/.local/bin
-
-# Run it
-theme-switcher
-```
 
 ## Usage
 
