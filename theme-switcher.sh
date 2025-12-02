@@ -229,25 +229,12 @@ check_dependencies() {
     check_and_install_dependency "curl" "curl" "$pkg_manager" "$install_cmd"
     check_and_install_dependency "tar" "tar" "$pkg_manager" "$install_cmd"
     check_and_install_dependency "unzip" "unzip" "$pkg_manager" "$install_cmd"
-    check_and_install_dependency "gnome-extensions" "gnome-extensions" "$pkg_manager" "$install_cmd"
-    check_and_install_dependency "user-theme" "gnome-shell-extension-user-theme" "$pkg_manager" "$install_cmd"
 
     # gsettings requires special package name handling
     local gsettings_pkg=$(get_gsettings_package "$pkg_manager")
     check_and_install_dependency "gsettings" "$gsettings_pkg" "$pkg_manager" "$install_cmd"
-    
-    enable_user_theme_extension
 
     success "All dependencies are installed!"
-}
-
-# Enable GNOME Shell user-theme extension
-enable_user_theme_extension() {    
-    if ! gnome-extensions info user-theme@gnome-shell-extensions.gcampax.github.com | grep -q "State: ENABLED"; then
-        info "Enabling user-theme extension..."
-        gnome-extensions enable user-theme@gnome-shell-extensions.gcampax.github.com
-        success "user-theme extension enabled!"
-    fi
 }
 #  <========= END of System & Dependency Management =========>
 
@@ -317,8 +304,10 @@ derive_theme_name() {
 # Prepare necessary folder to run this properly.
 prepare_folders(){
     mkdir -p $VAULT
-    mkdir -P $THEMES_DIR
-    mkdir -P $ICONS_DIR
+    mkdir -p $THEMES_DIR
+    mkdir -p $ICONS_DIR
+    mkdir -p $CURSORS_DIR
+    mkdir -p $WALLPAPERS_DIR
 }
 
 # Check if the theme is in vault
@@ -1047,9 +1036,6 @@ download_wallpaper() {
 # Install wallpaper
 install_wallpaper() {
     local filename="$1"
-
-    # Create wallpapers directory if it doesn't exist
-    mkdir -p "$WALLPAPERS_DIR"
 
     # Copy wallpaper to Pictures directory
     cp "$VAULT/wallpaper/$filename" "$WALLPAPERS_DIR/$filename"
