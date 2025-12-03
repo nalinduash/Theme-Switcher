@@ -149,9 +149,41 @@ header(){
 }
 #  <========= END of Messages =========>
 
+spinner() {
+  local pid=$1     # PID of the process to wait for
+  local msg=$2     # Message to show
+  local total=10   # Number of dots
+
+  while kill -0 "$pid" 2>/dev/null; do
+    for ((i=1; i<=total; i++)); do
+      local bar=""
+      for ((j=1; j<=total; j++)); do
+        if (( j < i )); then
+          bar+="●"
+        elif (( j == i )); then
+          bar+="⦿"
+        else
+          bar+=" "
+        fi
+      done
+      printf "\r       %s \e[0;34m[:%s:] 😇\e[0m" "$msg" "$bar" >&2
+      sleep 0.15
+    done
+  done
+  printf "\r\033[K" >&2  # Clear the line after done
+}
+
 
 
 #  <========= System & Dependency Management =========>
+# Check internet connection
+check_internet() {
+    if ! ping -c 1 google.com &>/dev/null; then
+        error "No internet connection available."
+        exit 1
+    fi
+}
+
 # Detect package manager and return manager name and install command
 detect_package_manager() {
     if command -v dnf &>/dev/null; then
@@ -256,12 +288,24 @@ read_value(){
 # Load json data file from the gnome-look-org
 load_json(){
     local id="$1"
+    local temp_json=$(mktemp)
 
-    json=$(curl -Lfs "https://www.gnome-look.org/p/${id}/loadFiles")
-    if [[ -z "$json" ]]; then
+    check_internet
+    
+    curl -Lfs "https://www.gnome-look.org/p/${id}/loadFiles" > "$temp_json" &
+    local pid=$!
+    
+    spinner "$pid" "Fetching theme data..."
+    wait "$pid"
+    
+    if [[ $? -ne 0 ]]; then
+        rm -f "$temp_json"
         error "Failed to fetch loadFiles JSON."
         return 1
     fi
+
+    json=$(cat "$temp_json")
+    rm -f "$temp_json"
 
     echo "$json"
 }
@@ -525,7 +569,16 @@ download_theme() {
     fi
 
     # Download
-    curl -L -o "$VAULT/$type/$id/$file" "$url"
+    check_internet
+    curl -sL -o "$VAULT/$type/$id/$file" "$url" &
+    local pid=$!
+    spinner "$pid" "Downloading $file..."
+    wait "$pid"
+    
+    if [[ $? -ne 0 ]]; then
+        error "Download failed for $file"
+        return 1
+    fi
 }
 
 extract_theme() {
@@ -1030,7 +1083,16 @@ download_wallpaper() {
     mkdir -p "$VAULT/wallpaper"
 
     # Download wallpaper
-    curl -L -o "$VAULT/wallpaper/$filename" "$url"
+    check_internet
+    curl -sL -o "$VAULT/wallpaper/$filename" "$url" &
+    local pid=$!
+    spinner "$pid" "Downloading $filename..."
+    wait "$pid"
+
+    if [[ $? -ne 0 ]]; then
+        error "Download failed for $filename"
+        return 1
+    fi
 }
 
 # Install wallpaper
@@ -1254,9 +1316,9 @@ WALLPAPER_DARK_URL=$(read_value   ".wallpaper.darkURL"  "$chosen")
 
 info "You selected $chosen theme package"
 info "These themes will be applied:"
-info "  $GTK_NAME"
-info "  $CURSOR_NAME"
-info "  $ICON_NAME"
+info "  │─> $GTK_NAME"
+info "  │─> $CURSOR_NAME"
+info "  ╰─> $ICON_NAME"
 
 # Save previous theme configuration to history
 save_theme_to_history "$GTK_NAME" "$CURSOR_NAME" "$ICON_NAME"
