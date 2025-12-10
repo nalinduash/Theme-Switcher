@@ -966,6 +966,9 @@ detect_desktop_environment() {
 # Current desktop environment (set during initialization)
 CURRENT_DE=""
 
+# Name of the folder that should be applied after installation (set by installers)
+LAST_APPLY_NAME=""
+
 
 # ==============================================================================
 # SECTION 12: GNOME DESKTOP ENVIRONMENT ADAPTER
@@ -1135,12 +1138,192 @@ get_current_themes() {
 
 
 # ==============================================================================
-# SECTION 14: THEME INSTALLATION SERVICE
+# SECTION 14: FOLDER SELECTION SERVICE
+# ==============================================================================
+# When a theme archive contains multiple variant folders (e.g., Theme-Dark, 
+# Theme-Light, Theme-Bordered), this section helps pick the right ones.
+# We detect a "base" folder (1.5x larger than others) and let user pick a variant.
+
+# Gets the size of a directory in bytes
+# Usage: get_folder_size "/path/to/folder"
+get_folder_size() {
+    local folder_path="$1"
+    du -sb "$folder_path" 2>/dev/null | cut -f1
+}
+
+# Analyzes folders to find a base folder (1.5x larger than average of others)
+# Parameters:
+#   $1 - vault_path: Path containing the extracted folders
+# Returns: Name of base folder, or empty if none found
+# Also sets global: FOLDER_SIZES_JSON for later use
+detect_base_folder() {
+    local vault_path="$1"
+    
+    # Get all folders and their sizes
+    local folders_with_sizes=""
+    local total_size=0
+    local folder_count=0
+    local largest_folder=""
+    local largest_size=0
+    
+    while IFS= read -r folder; do
+        [[ -z "$folder" ]] && continue
+        
+        local folder_path="$vault_path/$folder"
+        [[ ! -d "$folder_path" ]] && continue
+        
+        local size
+        size=$(get_folder_size "$folder_path")
+        
+        folders_with_sizes+="$folder:$size"$'\n'
+        total_size=$((total_size + size))
+        folder_count=$((folder_count + 1))
+        
+        if [[ $size -gt $largest_size ]]; then
+            largest_size=$size
+            largest_folder=$folder
+        fi
+    done < <(find "$vault_path" -mindepth 1 -maxdepth 1 -type d -printf "%f\n")
+    
+    # Need at least 2 folders to compare
+    if [[ $folder_count -lt 2 ]]; then
+        echo ""
+        return 0
+    fi
+    
+    # Calculate average size of OTHER folders (excluding largest)
+    local other_total=$((total_size - largest_size))
+    local other_count=$((folder_count - 1))
+    local other_average=$((other_total / other_count))
+    
+    # Check if largest is 1.5x bigger than average of others
+    local threshold=$((other_average * 3 / 2))  # 1.5x
+    
+    if [[ $largest_size -ge $threshold ]]; then
+        echo "$largest_folder"
+    else
+        echo ""
+    fi
+}
+
+# Gets all variant folders (non-base folders) from a vault path
+# Parameters:
+#   $1 - vault_path
+#   $2 - base_folder (to exclude, can be empty)
+# Returns: List of folder names, one per line
+get_variant_folders() {
+    local vault_path="$1"
+    local base_folder="$2"
+    
+    while IFS= read -r folder; do
+        [[ -z "$folder" ]] && continue
+        [[ "$folder" == "$base_folder" ]] && continue
+        echo "$folder"
+    done < <(find "$vault_path" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort)
+}
+
+# Interactive folder selection for theme installation
+# Detects base folder, confirms with user, lets them pick a variant
+# Parameters:
+#   $1 - vault_path: Path containing extracted folders
+#   $2 - theme_type: "gtk", "cursor", or "icon" (for display)
+# Returns: Space-separated list of folders to install (echoed)
+select_folders_to_install() {
+    local vault_path="$1"
+    local theme_type="$2"
+    
+    # Count folders
+    local folder_count
+    folder_count=$(find "$vault_path" -mindepth 1 -maxdepth 1 -type d | wc -l)
+    
+    # If only one folder, just use it
+    if [[ $folder_count -eq 1 ]]; then
+        find "$vault_path" -mindepth 1 -maxdepth 1 -type d -printf "%f\n"
+        return 0
+    fi
+    
+    # If no folders, return empty
+    if [[ $folder_count -eq 0 ]]; then
+        return 0
+    fi
+    
+    log_info "Found $folder_count ${theme_type} variant folders in archive"
+    
+    # Detect base folder
+    local base_folder
+    base_folder=$(detect_base_folder "$vault_path")
+    
+    local selected_folders=""
+    
+    if [[ -n "$base_folder" ]]; then
+        # Found a base folder - confirm with user
+        echo ""
+        log_info "Detected base folder: ${COLOR_BOLD}$base_folder${COLOR_RESET}"
+        log_info "(This folder is significantly larger than others - likely contains shared assets)"
+        
+        local confirm
+        confirm=$(gum confirm "Is '$base_folder' the correct base folder?" && echo "yes" || echo "no")
+        
+        if [[ "$confirm" == "yes" ]]; then
+            selected_folders="$base_folder"
+            log_success "Base folder confirmed: $base_folder"
+        else
+            log_info "Base folder rejected. You'll select all folders manually."
+            base_folder=""
+        fi
+    else
+        log_info "No base folder detected (no folder is 1.5x larger than others)"
+    fi
+    
+    # Get variant folders (excluding base if confirmed)
+    local variants
+    variants=$(get_variant_folders "$vault_path" "$base_folder")
+    
+    if [[ -z "$variants" ]]; then
+        # No variants, just return base (or nothing)
+        echo "$selected_folders"
+        return 0
+    fi
+    
+    # Let user pick a variant
+    echo ""
+    log_info "Available ${theme_type} variants:"
+    
+    # Show folder sizes for user reference
+    while IFS= read -r folder; do
+        [[ -z "$folder" ]] && continue
+        local size_kb
+        size_kb=$(du -sk "$vault_path/$folder" 2>/dev/null | cut -f1)
+        echo "  • $folder (${size_kb} KB)"
+    done <<< "$variants"
+    echo ""
+    
+    local chosen_variant
+    chosen_variant=$(echo "$variants" | gum choose --header "Pick a ${theme_type} variant to install:")
+    
+    if [[ -n "$chosen_variant" ]]; then
+        if [[ -n "$selected_folders" ]]; then
+            selected_folders="$selected_folders"$'\n'"$chosen_variant"
+        else
+            selected_folders="$chosen_variant"
+        fi
+        log_success "Selected variant: $chosen_variant"
+    else
+        log_warn "No variant selected"
+    fi
+    
+    echo "$selected_folders"
+}
+
+
+# ==============================================================================
+# SECTION 15: THEME INSTALLATION SERVICE
 # ==============================================================================
 # Functions that copy themes from the vault to the installation directories.
 # Like moving clothes from a shipping box to your closet!
 
 # Copies a GTK theme from vault to the themes directory
+# Uses interactive folder selection when multiple variants exist
 install_gtk_theme() {
     local theme_name="$1"
     local theme_id="$2"
@@ -1149,27 +1332,38 @@ install_gtk_theme() {
     local vault_path
     vault_path=$(get_vault_path "gtk" "$theme_id" "$archive_name")
     
-    # Get all folders to install
-    local folders
-    folders=$(get_extracted_folders "gtk" "$theme_id" "$archive_name")
+    # Reset and determine which folders to install
+    LAST_APPLY_NAME=""
+    local selected_folders
+    selected_folders=$(select_folders_to_install "$vault_path" "GTK")
     
-    if [[ -z "$folders" ]]; then
-        # Fallback: use theme_name directly
-        rm -rf "$THEMES_DIR/$theme_name"
-        cp -r "$vault_path/$theme_name" "$THEMES_DIR/"
+    if [[ -z "$selected_folders" ]]; then
+        # Fallback: use theme_name directly if no folders selected
+        if [[ -d "$vault_path/$theme_name" ]]; then
+            rm -rf "$THEMES_DIR/$theme_name"
+            cp -r "$vault_path/$theme_name" "$THEMES_DIR/"
+            LAST_APPLY_NAME="$theme_name"
+        else
+            log_warn "No folders to install for GTK theme"
+            return 1
+        fi
     else
         while IFS= read -r folder; do
             if [[ -n "$folder" && -d "$vault_path/$folder" ]]; then
                 rm -rf "$THEMES_DIR/$folder"
                 cp -r "$vault_path/$folder" "$THEMES_DIR/"
+                log_info "Copied: $folder"
             fi
-        done <<< "$folders"
+        done <<< "$selected_folders"
+        # Apply the last selected folder (variant) if present; otherwise base
+        LAST_APPLY_NAME=$(echo "$selected_folders" | tail -n 1)
     fi
     
     log_info "Installed GTK theme to: $THEMES_DIR"
 }
 
 # Copies a cursor theme from vault to the icons directory
+# Uses interactive folder selection when multiple variants exist
 install_cursor_theme() {
     local cursor_name="$1"
     local theme_id="$2"
@@ -1178,25 +1372,36 @@ install_cursor_theme() {
     local vault_path
     vault_path=$(get_vault_path "cursor" "$theme_id" "$archive_name")
     
-    local folders
-    folders=$(get_extracted_folders "cursor" "$theme_id" "$archive_name")
+    # Use smart folder selection
+    LAST_APPLY_NAME=""
+    local selected_folders
+    selected_folders=$(select_folders_to_install "$vault_path" "cursor")
     
-    if [[ -z "$folders" ]]; then
-        rm -rf "$CURSORS_DIR/$cursor_name"
-        cp -r "$vault_path/$cursor_name" "$CURSORS_DIR/"
+    if [[ -z "$selected_folders" ]]; then
+        if [[ -d "$vault_path/$cursor_name" ]]; then
+            rm -rf "$CURSORS_DIR/$cursor_name"
+            cp -r "$vault_path/$cursor_name" "$CURSORS_DIR/"
+            LAST_APPLY_NAME="$cursor_name"
+        else
+            log_warn "No folders to install for cursor theme"
+            return 1
+        fi
     else
         while IFS= read -r folder; do
             if [[ -n "$folder" && -d "$vault_path/$folder" ]]; then
                 rm -rf "$CURSORS_DIR/$folder"
                 cp -r "$vault_path/$folder" "$CURSORS_DIR/"
+                log_info "Copied: $folder"
             fi
-        done <<< "$folders"
+        done <<< "$selected_folders"
+        LAST_APPLY_NAME=$(echo "$selected_folders" | tail -n 1)
     fi
     
     log_info "Installed cursor theme to: $CURSORS_DIR"
 }
 
 # Copies an icon theme from vault to the icons directory
+# Uses interactive folder selection when multiple variants exist
 install_icon_theme() {
     local icon_name="$1"
     local theme_id="$2"
@@ -1205,19 +1410,29 @@ install_icon_theme() {
     local vault_path
     vault_path=$(get_vault_path "icon" "$theme_id" "$archive_name")
     
-    local folders
-    folders=$(get_extracted_folders "icon" "$theme_id" "$archive_name")
+    # Use smart folder selection
+    LAST_APPLY_NAME=""
+    local selected_folders
+    selected_folders=$(select_folders_to_install "$vault_path" "icon")
     
-    if [[ -z "$folders" ]]; then
-        rm -rf "$ICONS_DIR/$icon_name"
-        cp -r "$vault_path/$icon_name" "$ICONS_DIR/"
+    if [[ -z "$selected_folders" ]]; then
+        if [[ -d "$vault_path/$icon_name" ]]; then
+            rm -rf "$ICONS_DIR/$icon_name"
+            cp -r "$vault_path/$icon_name" "$ICONS_DIR/"
+            LAST_APPLY_NAME="$icon_name"
+        else
+            log_warn "No folders to install for icon theme"
+            return 1
+        fi
     else
         while IFS= read -r folder; do
             if [[ -n "$folder" && -d "$vault_path/$folder" ]]; then
                 rm -rf "$ICONS_DIR/$folder"
                 cp -r "$vault_path/$folder" "$ICONS_DIR/"
+                log_info "Copied: $folder"
             fi
-        done <<< "$folders"
+        done <<< "$selected_folders"
+        LAST_APPLY_NAME=$(echo "$selected_folders" | tail -n 1)
     fi
     
     log_info "Installed icon theme to: $ICONS_DIR"
@@ -1248,7 +1463,7 @@ update_icon_cache() {
 
 
 # ==============================================================================
-# SECTION 15: HISTORY MANAGEMENT
+# SECTION 16: HISTORY MANAGEMENT
 # ==============================================================================
 # Keeps track of theme changes so you can go back to previous configurations.
 # Like a "Time Machine" for your desktop appearance!
@@ -1392,7 +1607,7 @@ run_restore() {
 
 
 # ==============================================================================
-# SECTION 16: WALLPAPER MANAGEMENT
+# SECTION 17: WALLPAPER MANAGEMENT
 # ==============================================================================
 # Downloads and applies wallpapers that match your theme.
 # Because a good wallpaper ties the whole look together!
@@ -1481,7 +1696,7 @@ process_wallpapers() {
 
 
 # ==============================================================================
-# SECTION 17: THEME PROCESSING ORCHESTRATOR
+# SECTION 18: THEME PROCESSING ORCHESTRATOR
 # ==============================================================================
 # The main "conductor" that coordinates downloading, installing, and applying themes.
 # Like the director of an orchestra, making sure everyone plays at the right time!
@@ -1552,11 +1767,13 @@ process_theme_component() {
         "icon")   install_icon_theme "$extracted_name" "$theme_id" "$archive_name" ;;
     esac
     
-    # Step 7: Apply theme
+    # Step 7: Apply theme (prefer the explicitly selected variant)
+    local apply_name="${LAST_APPLY_NAME:-$extracted_name}"
+    if [[ -z "$apply_name" ]]; then apply_name="$extracted_name"; fi
     case "$theme_type" in
-        "gtk")    apply_gtk_theme "$extracted_name" ;;
-        "cursor") apply_cursor_theme "$extracted_name" ;;
-        "icon")   apply_icon_theme "$extracted_name" ;;
+        "gtk")    apply_gtk_theme "$apply_name" ;;
+        "cursor") apply_cursor_theme "$apply_name" ;;
+        "icon")   apply_icon_theme "$apply_name" ;;
     esac
     
     log_success "${theme_type^^} theme ($extracted_name) complete!"
@@ -1565,7 +1782,7 @@ process_theme_component() {
 
 
 # ==============================================================================
-# SECTION 18: CLI INTERFACE
+# SECTION 19: CLI INTERFACE
 # ==============================================================================
 # Handles command-line arguments and help messages.
 # The "front door" for users who prefer typing commands!
@@ -1639,7 +1856,7 @@ handle_cli_arguments() {
 
 
 # ==============================================================================
-# SECTION 19: INTERACTIVE MODE
+# SECTION 20: INTERACTIVE MODE
 # ==============================================================================
 # The pretty menu-based interface for users who prefer clicking over typing!
 # Uses 'gum' to create beautiful interactive menus.
@@ -1747,7 +1964,7 @@ run_interactive_mode() {
 
 
 # ==============================================================================
-# SECTION 20: MAIN ENTRY POINT
+# SECTION 21: MAIN ENTRY POINT
 # ==============================================================================
 # This is where everything starts! The script runs from here.
 # Think of it as the "Start" button of the whole program.
