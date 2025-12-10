@@ -623,7 +623,7 @@ select_theme_file() {
     
     if [[ "$file_count" -gt 1 ]]; then
         # Multiple files: let user choose using gum
-        echo "$available_files" | gum choose --header "Pick a file to download:"
+        echo "$available_files" | gum choose --header "📦 Pick a file to download:"
     else
         # Single file: just use it
         echo "$available_files"
@@ -1258,11 +1258,48 @@ select_folders_to_install() {
     if [[ -n "$base_folder" ]]; then
         # Found a base folder - confirm with user
         echo ""
+        
+        # Calculate base folder size and comparison
+        local base_size_kb other_avg_kb
+        base_size_kb=$(du -sk "$vault_path/$base_folder" 2>/dev/null | cut -f1)
+        
+        # Calculate average of other folders
+        local other_total=0 other_count=0
+        while IFS= read -r folder; do
+            [[ -z "$folder" || "$folder" == "$base_folder" ]] && continue
+            local sz
+            sz=$(du -sk "$vault_path/$folder" 2>/dev/null | cut -f1)
+            other_total=$((other_total + sz))
+            other_count=$((other_count + 1))
+        done < <(find "$vault_path" -mindepth 1 -maxdepth 1 -type d -printf "%f\n")
+        
+        if [[ $other_count -gt 0 ]]; then
+            other_avg_kb=$((other_total / other_count))
+        else
+            other_avg_kb=0
+        fi
+        
+        # Format sizes for display
+        local base_size_display ratio_display
+        if [[ $base_size_kb -ge 1024 ]]; then
+            base_size_display="$((base_size_kb / 1024)) MB"
+        else
+            base_size_display="${base_size_kb} KB"
+        fi
+        
+        if [[ $other_avg_kb -gt 0 ]]; then
+            local ratio=$((base_size_kb * 100 / other_avg_kb))
+            ratio_display="${ratio}% of avg variant size"
+        else
+            ratio_display="only folder"
+        fi
+        
         log_info "Detected base folder: ${COLOR_BOLD}$base_folder${COLOR_RESET}"
+        log_info "📁 Size: ${base_size_display} (${ratio_display})"
         log_info "(This folder is significantly larger than others - likely contains shared assets)"
         
         local confirm
-        confirm=$(gum confirm "Is '$base_folder' the correct base folder?" && echo "yes" || echo "no")
+        confirm=$(gum confirm "📂 Is '$base_folder' the correct base folder?" && echo "yes" || echo "no")
         
         if [[ "$confirm" == "yes" ]]; then
             selected_folders="$base_folder"
@@ -1285,21 +1322,30 @@ select_folders_to_install() {
         return 0
     fi
     
-    # Let user pick a variant
+    # Let user pick a variant - build display list with sizes
     echo ""
     log_info "Available ${theme_type} variants:"
     
-    # Show folder sizes for user reference
+    local variant_display=""
     while IFS= read -r folder; do
         [[ -z "$folder" ]] && continue
-        local size_kb
+        local size_kb size_display
         size_kb=$(du -sk "$vault_path/$folder" 2>/dev/null | cut -f1)
-        echo "  • $folder (${size_kb} KB)"
+        if [[ $size_kb -ge 1024 ]]; then
+            size_display="$((size_kb / 1024)) MB"
+        else
+            size_display="${size_kb} KB"
+        fi
+        variant_display+="📁 $folder ($size_display)"$'\n'
     done <<< "$variants"
-    echo ""
+    variant_display=$(echo "$variant_display" | sed '/^$/d')  # Remove empty lines
     
+    local chosen_display
+    chosen_display=$(echo "$variant_display" | gum choose --header "🎨 Pick a ${theme_type} variant to install:")
+    
+    # Extract folder name from display (remove emoji and size)
     local chosen_variant
-    chosen_variant=$(echo "$variants" | gum choose --header "Pick a ${theme_type} variant to install:")
+    chosen_variant=$(echo "$chosen_display" | sed 's/^📁 //; s/ ([^)]*KB)$//; s/ ([^)]*MB)$//')
     
     if [[ -n "$chosen_variant" ]]; then
         if [[ -n "$selected_folders" ]]; then
@@ -1560,7 +1606,7 @@ select_history_entry() {
     
     # Let user choose
     local selected
-    selected=$(echo "$display_options" | gum choose --header "Select a theme configuration to restore:")
+    selected=$(echo "$display_options" | gum choose --header "🔄 Select a theme configuration to restore:")
     
     if [[ -z "$selected" ]]; then
         log_warn "No selection made."
@@ -1904,11 +1950,11 @@ run_interactive_mode() {
     
     # Let user choose a package
     local chosen_package
-    chosen_package=$(echo "$packages" | gum choose --header "Pick a theme package:")
+    chosen_package=$(echo "$packages" | gum choose --header "🎨 Pick a theme package:")
     
     if [[ -z "$chosen_package" ]]; then
-        log_error "No theme package selected."
-        return 1
+        log_warn "No theme package selected. Exiting."
+        exit 0
     fi
     
     log_info "Selected: $chosen_package"
