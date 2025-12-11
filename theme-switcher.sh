@@ -56,17 +56,20 @@ readonly THEME_PACKAGES_JSON='{
         "gtk": {
             "id": "1687249",
             "file": "Dracula.tar.xz",
-            "name": "Dracula"
+            "name": "Dracula",
+            "folders": ["Dracula"]
         },
         "cursor": {
             "id": "1662218",
             "file": "Nordic-cursors.tar.xz",
-            "name": "Nordic-cursors"
+            "name": "Nordic-cursors",
+            "folders": ["Nordic-cursors"]
         },
         "icon": {
             "id": "1541561",
             "file": "main.zip",
-            "name": "dracula-icons-main"
+            "name": "dracula-icons-main",
+            "folders": ["dracula-icons-main"]
         },
         "wallpaper": {
             "light": "dracula-light.png",
@@ -79,17 +82,20 @@ readonly THEME_PACKAGES_JSON='{
         "gtk": {
             "id": "1267246",
             "file": "Nordic-darker.tar.xz",
-            "name": "Nordic-darker"
+            "name": "Nordic-darker",
+            "folders": ["Nordic-darker"]
         },
         "cursor": {
             "id": "1662218",
             "file": "Nordic-cursors.tar.xz",
-            "name": "Nordic-cursors"
+            "name": "Nordic-cursors",
+            "folders": ["Nordic-cursors"]
         },
         "icon": {
             "id": "1686927",
             "file": "Nordzy.tar.gz",
-            "name": "Nordzy"
+            "name": "Nordzy",
+            "folders": ["Nordzy"]
         },
         "wallpaper": {
             "light": "nord-light.png",
@@ -102,17 +108,20 @@ readonly THEME_PACKAGES_JSON='{
         "gtk": {
             "id": "1715554",
             "file": "Catppuccin-B-MB-dark.tar.xz",
-            "name": "Catppuccin-B-MB-Dark"
+            "name": "Catppuccin-B-MB-Dark",
+            "folders": ["Catppuccin-B-MB-Dark"]
         },
         "cursor": {
             "id": "1148692",
             "file": "capitaine-cursors-r4.tar.gz",
-            "name": "capitaine-cursors"
+            "name": "capitaine-cursors",
+            "folders": ["capitaine-cursors"]   
         },
         "icon": {
             "id": "1405756",
-            "file": "WhiteSur-grey.tar.xz",
-            "name": "WhiteSur-grey"
+            "file": "WhiteSur-yellow.tar.xz",
+            "name": "WhiteSur-yellow",
+            "folders": ["WhiteSur-yellow"]
         },
         "wallpaper": {
             "light": "catppuccin-light.png",
@@ -125,17 +134,20 @@ readonly THEME_PACKAGES_JSON='{
         "gtk": {
             "id": "1598493",
             "file": "Graphite-Dark-nord.tar.xz",
-            "name": "Graphite-Dark-nord"
+            "name": "Graphite-Dark-nord",
+            "folders": ["Graphite-Dark-nord"]   
         },
         "cursor": {
             "id": "1651517",
             "file": "Graphite-nord.tar.xz",
-            "name": "Graphite-dark-nord-cursors"
+            "name": "Graphite-dark-nord-cursors",
+            "folders": ["Graphite-dark-nord-cursors"]
         },
         "icon": {
             "id": "1359276",
-            "file": "Tela-circle-black.tar.xz",
-            "name": "Tela-circle-black"
+            "file": "Tela-circle-nord.tar.xz",
+            "name": "Tela-circle-nord",
+            "folders": ["Tela-circle-nord"]
         },
         "wallpaper": {
             "light": "graphite-light.png",
@@ -483,6 +495,7 @@ EOF
 
 # Records the folders for a theme in files.json
 # So we know which folders to delete when cleaning up
+# Now tracks per-archive to support multiple archives under the same ID
 # Parameters:
 #   $1 - theme_type: "gtk", "cursor", or "icon"
 #   $2 - theme_id: The gnome-look.org ID
@@ -502,19 +515,20 @@ track_theme_folders() {
     fi
     
     # Update the JSON file with the new entry
+    # Structure: {"gtk": {"id": {"archives": {"archive_name": {"folders": [...]}}}}
     local updated_json
     updated_json=$(jq --arg type "$theme_type" \
                       --arg id "$theme_id" \
                       --arg name "$theme_name" \
                       --argjson folders "$folders_json" \
-                      '.[$type][$id] = {"name": $name, "folders": $folders}' "$FILES_JSON")
+                      '.[$type][$id].archives[$name] = {"folders": $folders}' "$FILES_JSON")
     
     echo "$updated_json" > "$FILES_JSON"
     log_info "Tracked $theme_type theme folders in files.json"
 }
 
-# Gets the stored theme name for a given ID from files.json
-get_tracked_theme_name() {
+# Gets all tracked archive names for a given theme ID from files.json
+get_tracked_archive_names() {
     local theme_type="$1"
     local theme_id="$2"
     
@@ -523,11 +537,25 @@ get_tracked_theme_name() {
     fi
     
     jq -r --arg type "$theme_type" --arg id "$theme_id" \
-        '.[$type][$id].name // ""' "$FILES_JSON" 2>/dev/null
+        '.[$type][$id].archives // {} | keys[]' "$FILES_JSON" 2>/dev/null
 }
 
-# Gets all tracked folders for a theme from files.json
-get_tracked_folders() {
+# Gets all tracked folders for a specific archive from files.json
+get_tracked_folders_for_archive() {
+    local theme_type="$1"
+    local theme_id="$2"
+    local archive_name="$3"
+    
+    if [[ ! -f "$FILES_JSON" ]]; then
+        return 0
+    fi
+    
+    jq -r --arg type "$theme_type" --arg id "$theme_id" --arg name "$archive_name" \
+        '.[$type][$id].archives[$name].folders[]? // empty' "$FILES_JSON" 2>/dev/null
+}
+
+# Gets all tracked folders for all archives under a theme ID from files.json
+get_all_tracked_folders() {
     local theme_type="$1"
     local theme_id="$2"
     
@@ -536,11 +564,27 @@ get_tracked_folders() {
     fi
     
     jq -r --arg type "$theme_type" --arg id "$theme_id" \
-        '.[$type][$id].folders[]? // empty' "$FILES_JSON" 2>/dev/null
+        '.[$type][$id].archives // {} | .[].folders[]? // empty' "$FILES_JSON" 2>/dev/null
 }
 
-# Removes a theme entry from files.json
-untrack_theme() {
+# Removes a specific archive entry from files.json
+untrack_archive() {
+    local theme_type="$1"
+    local theme_id="$2"
+    local archive_name="$3"
+    
+    if [[ ! -f "$FILES_JSON" ]]; then
+        return 0
+    fi
+    
+    local updated_json
+    updated_json=$(jq --arg type "$theme_type" --arg id "$theme_id" --arg name "$archive_name" \
+                      'del(.[$type][$id].archives[$name])' "$FILES_JSON")
+    echo "$updated_json" > "$FILES_JSON"
+}
+
+# Removes all archive entries for a theme ID from files.json
+untrack_all_archives() {
     local theme_type="$1"
     local theme_id="$2"
     
@@ -623,7 +667,14 @@ select_theme_file() {
     
     if [[ "$file_count" -gt 1 ]]; then
         # Multiple files: let user choose using gum
-        echo "$available_files" | gum choose --header "📦 Pick a file to download:"
+        local selected_file
+        selected_file=$(echo "$available_files" | gum choose --header "📦 Pick a file to download:")
+        
+        if [[ -z "$selected_file" ]]; then
+            log_warn "No file selected - cancelling"
+            return 2  # User cancellation
+        fi
+        echo "$selected_file"
     else
         # Single file: just use it
         echo "$available_files"
@@ -853,17 +904,18 @@ extract_theme_archive() {
     return 0
 }
 
-# Removes old theme files before installing a new version
-# Cleans both vault and installation directories
-clean_old_theme() {
+# Removes a specific archive's files before installing a new version
+# Only cleans the specific archive, not other archives under the same ID
+clean_old_archive() {
     local theme_type="$1"
     local theme_id="$2"
+    local archive_name="$3"
     
-    log_info "Cleaning old $theme_type theme (ID: $theme_id)..."
+    log_info "Cleaning old $theme_type archive: $archive_name..."
     
-    # Get tracked folders from files.json
+    # Get tracked folders for this specific archive from files.json
     local tracked_folders
-    tracked_folders=$(get_tracked_folders "$theme_type" "$theme_id")
+    tracked_folders=$(get_tracked_folders_for_archive "$theme_type" "$theme_id" "$archive_name")
     
     # Determine the installation directory
     local install_dir
@@ -878,30 +930,26 @@ clean_old_theme() {
         while IFS= read -r folder; do
             if [[ -n "$folder" && -d "$install_dir/$folder" ]]; then
                 rm -rf "$install_dir/$folder"
+                log_info "Removed from $install_dir: $folder"
             fi
         done <<< "$tracked_folders"
     fi
     
-    # Remove from vault
-    local old_name
-    old_name=$(get_tracked_theme_name "$theme_type" "$theme_id")
-    
-    if [[ -n "$old_name" ]]; then
-        local old_vault_path
-        old_vault_path=$(get_vault_path "$theme_type" "$theme_id" "$old_name")
+    # Remove this archive from vault (but keep other archives under the same ID)
+    local old_vault_path
+    old_vault_path=$(get_vault_path "$theme_type" "$theme_id" "$archive_name")
+    if [[ -d "$old_vault_path" ]]; then
         rm -rf "$old_vault_path"
-    else
-        # Fallback: remove entire ID directory
-        rm -rf "$VAULT_DIR/$theme_type/$theme_id"
     fi
     
-    # Remove tracking entry
-    untrack_theme "$theme_type" "$theme_id"
+    # Remove tracking entry for this archive only
+    untrack_archive "$theme_type" "$theme_id" "$archive_name"
 }
 
-# High-level function: Download and extract a theme
+# High-level function: Download and extract a theme to the vault (staging area)
 # Combines download, extraction, timestamp sync, and tracking
-download_and_install_theme() {
+# Note: This does NOT install to system directories - use install_*_theme() for that
+download_and_extract_to_vault() {
     local theme_type="$1"
     local theme_id="$2"
     local theme_name="$3"
@@ -1298,10 +1346,8 @@ select_folders_to_install() {
         log_info "📁 Size: ${base_size_display} (${ratio_display})"
         log_info "(This folder is significantly larger than others - likely contains shared assets)"
         
-        local confirm
-        confirm=$(gum confirm "📂 Is '$base_folder' the correct base folder?" && echo "yes" || echo "no")
-        
-        if [[ "$confirm" == "yes" ]]; then
+        # Ask user to confirm base folder (gum confirm returns 0 for yes, 1 for no)
+        if gum confirm "📂 Is '$base_folder' the correct base folder?"; then
             selected_folders="$base_folder"
             log_success "Base folder confirmed: $base_folder"
         else
@@ -1355,7 +1401,9 @@ select_folders_to_install() {
         fi
         log_success "Selected variant: $chosen_variant"
     else
-        log_warn "No variant selected"
+        # User cancelled variant selection - signal cancellation
+        log_warn "No variant selected - cancelling installation"
+        return 2  # Return code 2 signals user cancellation
     fi
     
     echo "$selected_folders"
@@ -1381,7 +1429,15 @@ install_gtk_theme() {
     # Reset and determine which folders to install
     LAST_APPLY_NAME=""
     local selected_folders
+    local select_result
     selected_folders=$(select_folders_to_install "$vault_path" "GTK")
+    select_result=$?
+    
+    # Check if user cancelled selection (return code 2)
+    if [[ $select_result -eq 2 ]]; then
+        log_warn "GTK theme installation cancelled by user"
+        return 2
+    fi
     
     if [[ -z "$selected_folders" ]]; then
         # Fallback: use theme_name directly if no folders selected
@@ -1421,7 +1477,15 @@ install_cursor_theme() {
     # Use smart folder selection
     LAST_APPLY_NAME=""
     local selected_folders
+    local select_result
     selected_folders=$(select_folders_to_install "$vault_path" "cursor")
+    select_result=$?
+    
+    # Check if user cancelled selection (return code 2)
+    if [[ $select_result -eq 2 ]]; then
+        log_warn "Cursor theme installation cancelled by user"
+        return 2
+    fi
     
     if [[ -z "$selected_folders" ]]; then
         if [[ -d "$vault_path/$cursor_name" ]]; then
@@ -1459,7 +1523,15 @@ install_icon_theme() {
     # Use smart folder selection
     LAST_APPLY_NAME=""
     local selected_folders
+    local select_result
     selected_folders=$(select_folders_to_install "$vault_path" "icon")
+    select_result=$?
+    
+    # Check if user cancelled selection (return code 2)
+    if [[ $select_result -eq 2 ]]; then
+        log_warn "Icon theme installation cancelled by user"
+        return 2
+    fi
     
     if [[ -z "$selected_folders" ]]; then
         if [[ -d "$vault_path/$icon_name" ]]; then
@@ -1505,6 +1577,194 @@ update_icon_cache() {
         log_info "Updating icon cache (GTK4)..."
         gtk4-update-icon-cache -f -t "$ICONS_DIR/$icon_name" 2>/dev/null || true
     fi
+}
+
+
+# ==============================================================================
+# SECTION 15.5: PREDEFINED THEME INSTALLATION
+# ==============================================================================
+# Functions for installing predefined theme packages with specified folders.
+# These use the "folders" field from THEME_PACKAGES_JSON to automatically
+# install only the specified folders without user interaction.
+
+# Gets the predefined folders array for a theme component from the package
+# Parameters:
+#   $1 - package_name: Theme package name (e.g., "Dracula")
+#   $2 - component_type: "gtk", "cursor", or "icon"
+# Returns: Folder names, one per line
+get_predefined_folders() {
+    local package_name="$1"
+    local component_type="$2"
+    
+    echo "$THEME_PACKAGES_JSON" | jq -r ".\"${package_name}\".${component_type}.folders[]? // empty" 2>/dev/null
+}
+
+# Installs a GTK theme using predefined folders (no user interaction)
+# Parameters:
+#   $1 - theme_id
+#   $2 - archive_name
+#   $3 - folders (newline-separated list of folders to install)
+#   $4 - apply_name (the folder name to apply as the active theme)
+install_gtk_predefined() {
+    local theme_id="$1"
+    local archive_name="$2"
+    local folders="$3"
+    local apply_name="$4"
+    
+    local vault_path
+    vault_path=$(get_vault_path "gtk" "$theme_id" "$archive_name")
+    
+    if [[ -z "$folders" ]]; then
+        log_warn "No predefined folders specified for GTK theme"
+        return 1
+    fi
+    
+    while IFS= read -r folder; do
+        if [[ -n "$folder" && -d "$vault_path/$folder" ]]; then
+            rm -rf "$THEMES_DIR/$folder"
+            cp -r "$vault_path/$folder" "$THEMES_DIR/"
+            log_info "Copied GTK folder: $folder"
+        else
+            log_warn "Folder not found in vault: $folder"
+        fi
+    done <<< "$folders"
+    
+    LAST_APPLY_NAME="$apply_name"
+    log_info "Installed GTK theme to: $THEMES_DIR"
+}
+
+# Installs a cursor theme using predefined folders (no user interaction)
+install_cursor_predefined() {
+    local theme_id="$1"
+    local archive_name="$2"
+    local folders="$3"
+    local apply_name="$4"
+    
+    local vault_path
+    vault_path=$(get_vault_path "cursor" "$theme_id" "$archive_name")
+    
+    if [[ -z "$folders" ]]; then
+        log_warn "No predefined folders specified for cursor theme"
+        return 1
+    fi
+    
+    while IFS= read -r folder; do
+        if [[ -n "$folder" && -d "$vault_path/$folder" ]]; then
+            rm -rf "$CURSORS_DIR/$folder"
+            cp -r "$vault_path/$folder" "$CURSORS_DIR/"
+            log_info "Copied cursor folder: $folder"
+        else
+            log_warn "Folder not found in vault: $folder"
+        fi
+    done <<< "$folders"
+    
+    LAST_APPLY_NAME="$apply_name"
+    log_info "Installed cursor theme to: $CURSORS_DIR"
+}
+
+# Installs an icon theme using predefined folders (no user interaction)
+install_icon_predefined() {
+    local theme_id="$1"
+    local archive_name="$2"
+    local folders="$3"
+    local apply_name="$4"
+    
+    local vault_path
+    vault_path=$(get_vault_path "icon" "$theme_id" "$archive_name")
+    
+    if [[ -z "$folders" ]]; then
+        log_warn "No predefined folders specified for icon theme"
+        return 1
+    fi
+    
+    while IFS= read -r folder; do
+        if [[ -n "$folder" && -d "$vault_path/$folder" ]]; then
+            rm -rf "$ICONS_DIR/$folder"
+            cp -r "$vault_path/$folder" "$ICONS_DIR/"
+            log_info "Copied icon folder: $folder"
+        else
+            log_warn "Folder not found in vault: $folder"
+        fi
+    done <<< "$folders"
+    
+    LAST_APPLY_NAME="$apply_name"
+    log_info "Installed icon theme to: $ICONS_DIR"
+}
+
+# Processes a theme component from a predefined package
+# Uses the specified folders instead of asking user to choose
+# Parameters:
+#   $1 - package_name: Theme package name (e.g., "Dracula")
+#   $2 - theme_type: "gtk", "cursor", or "icon"
+#   $3 - theme_id
+#   $4 - file_name
+#   $5 - archive_name (name from package definition)
+process_predefined_theme_component() {
+    local package_name="$1"
+    local theme_type="$2"
+    local theme_id="$3"
+    local file_name="$4"
+    local archive_name="$5"
+    
+    log_header "Processing ${theme_type^^} Theme"
+    log_info "Theme ID: $theme_id"
+    
+    # Get predefined folders for this component
+    local predefined_folders
+    predefined_folders=$(get_predefined_folders "$package_name" "$theme_type")
+    
+    if [[ -z "$predefined_folders" ]]; then
+        log_warn "No predefined folders for $theme_type, falling back to interactive mode"
+        process_theme_component "$theme_type" "$theme_id" "$file_name" "$archive_name"
+        return $?
+    fi
+    
+    # The first folder in the list is the one to apply
+    local apply_name
+    apply_name=$(echo "$predefined_folders" | head -n 1)
+    
+    # Step 1: Fetch metadata from gnome-look.org
+    local metadata_json
+    if ! metadata_json=$(fetch_theme_metadata "$theme_id"); then
+        log_error "Failed to fetch theme metadata"
+        return 1
+    fi
+    
+    # Step 2: Check if download is needed
+    if needs_download "$theme_type" "$theme_id" "$archive_name" "$metadata_json" "$file_name"; then
+        # Clean old version of THIS archive only
+        clean_old_archive "$theme_type" "$theme_id" "$archive_name"
+        
+        # Download and extract
+        if ! download_and_extract_to_vault "$theme_type" "$theme_id" "$archive_name" "$metadata_json" "$file_name"; then
+            log_error "Failed to download/extract theme"
+            return 1
+        fi
+        
+        # Update icon cache if this is an icon theme
+        if [[ "$theme_type" == "icon" ]]; then
+            while IFS= read -r folder; do
+                [[ -n "$folder" ]] && update_icon_cache "$folder"
+            done <<< "$predefined_folders"
+        fi
+    fi
+    
+    # Step 3: Install theme using predefined folders
+    case "$theme_type" in
+        "gtk")    install_gtk_predefined "$theme_id" "$archive_name" "$predefined_folders" "$apply_name" ;;
+        "cursor") install_cursor_predefined "$theme_id" "$archive_name" "$predefined_folders" "$apply_name" ;;
+        "icon")   install_icon_predefined "$theme_id" "$archive_name" "$predefined_folders" "$apply_name" ;;
+    esac
+    
+    # Step 4: Apply theme
+    case "$theme_type" in
+        "gtk")    apply_gtk_theme "$apply_name" ;;
+        "cursor") apply_cursor_theme "$apply_name" ;;
+        "icon")   apply_icon_theme "$apply_name" ;;
+    esac
+    
+    log_success "${theme_type^^} theme ($apply_name) complete!"
+    return 0
 }
 
 
@@ -1767,7 +2027,15 @@ process_theme_component() {
     
     # Step 2: Select file to download (if not specified)
     if [[ -z "$file_name" ]]; then
-        if ! file_name=$(select_theme_file "$metadata_json" "$theme_id"); then
+        local select_file_result
+        file_name=$(select_theme_file "$metadata_json" "$theme_id")
+        select_file_result=$?
+        
+        if [[ $select_file_result -eq 2 ]]; then
+            # User cancelled file selection
+            log_warn "${theme_type^^} theme installation cancelled"
+            exit 0
+        elif [[ $select_file_result -ne 0 || -z "$file_name" ]]; then
             log_error "Failed to select theme file"
             return 1
         fi
@@ -1780,11 +2048,11 @@ process_theme_component() {
     
     # Step 4: Check if download is needed
     if needs_download "$theme_type" "$theme_id" "$archive_name" "$metadata_json" "$file_name"; then
-        # Clean old version first
-        clean_old_theme "$theme_type" "$theme_id"
+        # Clean old version of THIS archive only (preserves other archives under same ID)
+        clean_old_archive "$theme_type" "$theme_id" "$archive_name"
         
         # Download and extract
-        if ! download_and_install_theme "$theme_type" "$theme_id" "$archive_name" "$metadata_json" "$file_name"; then
+        if ! download_and_extract_to_vault "$theme_type" "$theme_id" "$archive_name" "$metadata_json" "$file_name"; then
             log_error "Failed to download/extract theme"
             return 1
         fi
@@ -1807,11 +2075,21 @@ process_theme_component() {
     fi
     
     # Step 6: Install theme (copy to system directories)
+    local install_result=0
     case "$theme_type" in
-        "gtk")    install_gtk_theme "$extracted_name" "$theme_id" "$archive_name" ;;
-        "cursor") install_cursor_theme "$extracted_name" "$theme_id" "$archive_name" ;;
-        "icon")   install_icon_theme "$extracted_name" "$theme_id" "$archive_name" ;;
+        "gtk")    install_gtk_theme "$extracted_name" "$theme_id" "$archive_name"; install_result=$? ;;
+        "cursor") install_cursor_theme "$extracted_name" "$theme_id" "$archive_name"; install_result=$? ;;
+        "icon")   install_icon_theme "$extracted_name" "$theme_id" "$archive_name"; install_result=$? ;;
     esac
+    
+    # Check if user cancelled installation (return code 2)
+    if [[ $install_result -eq 2 ]]; then
+        log_warn "${theme_type^^} theme installation cancelled"
+        exit 0
+    elif [[ $install_result -ne 0 ]]; then
+        log_error "Failed to install ${theme_type^^} theme"
+        return 1
+    fi
     
     # Step 7: Apply theme (prefer the explicitly selected variant)
     local apply_name="${LAST_APPLY_NAME:-$extracted_name}"
@@ -1822,7 +2100,7 @@ process_theme_component() {
         "icon")   apply_icon_theme "$apply_name" ;;
     esac
     
-    log_success "${theme_type^^} theme ($extracted_name) complete!"
+    log_success "${theme_type^^} theme ($apply_name) complete!"
     return 0
 }
 
@@ -1835,30 +2113,28 @@ process_theme_component() {
 
 # Shows the help/usage message
 show_help() {
-    cat << EOF
-${COLOR_BOLD}${SCRIPT_NAME} v${SCRIPT_VERSION}${COLOR_RESET}
-A modular tool for managing Linux desktop themes.
-
-${COLOR_BOLD}USAGE:${COLOR_RESET}
-    $0 [OPTIONS]
-
-${COLOR_BOLD}OPTIONS:${COLOR_RESET}
-    -g <ID>    Install GTK theme by GNOME-Look ID
-    -c <ID>    Install cursor theme by GNOME-Look ID
-    -i <ID>    Install icon theme by GNOME-Look ID
-    -r         Restore theme from history
-    -h         Show this help message
-
-${COLOR_BOLD}EXAMPLES:${COLOR_RESET}
-    $0 -g 1687249    # Install Dracula GTK theme
-    $0 -c 1662218    # Install Nordic cursors
-    $0 -i 1686927    # Install Nordzy icons
-    $0 -r            # Restore from history
-    $0               # Interactive mode (no arguments)
-
-${COLOR_BOLD}INTERACTIVE MODE:${COLOR_RESET}
-    Run without arguments to select from pre-configured theme packages.
-EOF
+    echo -e "${COLOR_BOLD}${SCRIPT_NAME} v${SCRIPT_VERSION}${COLOR_RESET}"
+    echo "A modular tool for managing Linux desktop themes."
+    echo ""
+    echo -e "${COLOR_BOLD}USAGE:${COLOR_RESET}"
+    echo "    $0 [OPTIONS]"
+    echo ""
+    echo -e "${COLOR_BOLD}OPTIONS:${COLOR_RESET}"
+    echo "    -g <ID>    Install GTK theme by GNOME-Look ID"
+    echo "    -c <ID>    Install cursor theme by GNOME-Look ID"
+    echo "    -i <ID>    Install icon theme by GNOME-Look ID"
+    echo "    -r         Restore theme from history"
+    echo "    -h         Show this help message"
+    echo ""
+    echo -e "${COLOR_BOLD}EXAMPLES:${COLOR_RESET}"
+    echo "    $0 -g 1687249    # Install Dracula GTK theme"
+    echo "    $0 -c 1662218    # Install Nordic cursors"
+    echo "    $0 -i 1686927    # Install Nordzy icons"
+    echo "    $0 -r            # Restore from history"
+    echo "    $0               # Interactive mode (no arguments)"
+    echo ""
+    echo -e "${COLOR_BOLD}INTERACTIVE MODE:${COLOR_RESET}"
+    echo "    Run without arguments to select from pre-configured theme packages."
 }
 
 # Parses and handles command-line arguments
@@ -1993,10 +2269,10 @@ run_interactive_mode() {
     # Save current theme to history before making changes
     save_to_history
     
-    # Process each component
-    process_theme_component "gtk" "$gtk_id" "$gtk_file" "$gtk_name"
-    process_theme_component "cursor" "$cursor_id" "$cursor_file" "$cursor_name"
-    process_theme_component "icon" "$icon_id" "$icon_file" "$icon_name"
+    # Process each component using predefined folders (no user interaction for folder selection)
+    process_predefined_theme_component "$chosen_package" "gtk" "$gtk_id" "$gtk_file" "$gtk_name"
+    process_predefined_theme_component "$chosen_package" "cursor" "$cursor_id" "$cursor_file" "$cursor_name"
+    process_predefined_theme_component "$chosen_package" "icon" "$icon_id" "$icon_file" "$icon_name"
     
     # Process wallpapers
     process_wallpapers "$wp_light_file" "$wp_light_url" "$wp_dark_file" "$wp_dark_url"
