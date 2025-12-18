@@ -59,6 +59,14 @@ readonly GNOME_LOOK_API="https://www.gnome-look.org/p"
 
 
 # ==============================================================================
+# GLOBAL VARIABLES
+# ==============================================================================
+
+# Verbose mode flag - controls visibility of log messages
+VERBOSE_MODE=false
+
+
+# ==============================================================================
 # CONSTANTS - THEME PACKAGE DATABASE
 # ==============================================================================
 
@@ -181,28 +189,43 @@ log_error() {
 
 log_info() {
     local message="$1"
-    echo -e "${COLOR_BLUE}${COLOR_BOLD}[INFO]${COLOR_RESET} ${message}"
+    if [[ "$VERBOSE_MODE" == true ]]; then
+        echo -e "${COLOR_BLUE}${COLOR_BOLD}[INFO]${COLOR_RESET} ${message}"
+    fi
 }
 
 log_success() {
     local message="$1"
-    echo -e "${COLOR_GREEN}${COLOR_BOLD}[SUCCESS]${COLOR_RESET} ${message}"
+    if [[ "$VERBOSE_MODE" == true ]]; then
+        echo -e "${COLOR_GREEN}${COLOR_BOLD}[SUCCESS]${COLOR_RESET} ${message}"
+    fi
 }
 
 log_warn() {
     local message="$1"
-    echo -e "${COLOR_YELLOW}${COLOR_BOLD}[WARN]${COLOR_RESET} ${message}"
+    if [[ "$VERBOSE_MODE" == true ]]; then
+        echo -e "${COLOR_YELLOW}${COLOR_BOLD}[WARN]${COLOR_RESET} ${message}"
+    fi
 }
 
 log_header() {
     local title="$1"
-    echo -e "\n${COLOR_BOLD}${COLOR_BLUE}━━━ ${title} ━━━${COLOR_RESET}"
+    if [[ "$VERBOSE_MODE" == true ]]; then
+        echo -e "\n${COLOR_BOLD}${COLOR_BLUE}━━━ ${title} ━━━${COLOR_RESET}"
+    fi
 }
 
 show_progressbar() {
     local pid=$1           # The process ID we're waiting for
     local message=$2       
     local dot_count=20     
+    
+    local label=""
+    if [[ "$VERBOSE_MODE" == false ]]; then
+        label=$message
+    else
+        label="       ${message}"
+    fi
     
     # Keep animating while the background process is running
     while kill -0 "$pid" 2>/dev/null; do
@@ -217,7 +240,7 @@ show_progressbar() {
                     bar+=" "         # Empty space (not yet reached)
                 fi
             done
-            printf "\r       %s ${COLOR_BLUE}[:${bar}:]${COLOR_RESET}" "$message" >&2
+            printf "\r%s ${COLOR_BLUE}[:${bar}:]${COLOR_RESET}" "$label" >&2
             sleep 0.12
         done
     done
@@ -263,14 +286,16 @@ show_help() {
     echo "    -c <ID>    Install cursor theme by GNOME-Look ID"
     echo "    -i <ID>    Install icon theme by GNOME-Look ID"
     echo "    -r         Restore theme from history"
+    echo "    -v         Enable verbose mode (show detailed logs)"
     echo "    -h         Show this help message"
     echo ""
     echo -e "${COLOR_BOLD}EXAMPLES:${COLOR_RESET}"
-    echo "    $0 -g 1687249    # Install Dracula GTK theme"
-    echo "    $0 -c 1662218    # Install Nordic cursors"
-    echo "    $0 -i 1686927    # Install Nordzy icons"
-    echo "    $0 -r            # Restore from history"
-    echo "    $0               # Interactive mode (no arguments)"
+    echo "    $0 -g 1687249       # Install Dracula GTK theme"
+    echo "    $0 -v -g 1687249    # Install Dracula GTK theme with verbose output"
+    echo "    $0 -c 1662218       # Install Nordic cursors"
+    echo "    $0 -i 1686927       # Install Nordzy icons"
+    echo "    $0 -r               # Restore from history"
+    echo "    $0                  # Interactive mode (no arguments)"
     echo ""
     echo -e "${COLOR_BOLD}INTERACTIVE MODE:${COLOR_RESET}"
     echo "    Run without arguments to select from pre-configured theme packages."
@@ -914,7 +939,7 @@ select_theme_file() {
                                                          --cursor.background="220" \
                                                          --cursor.foreground="0" \
                                                          --cursor.bold \
-                                                         --cursor="      ➔➔ ")
+                                                         --cursor="   ➔➔ ")
 
     echo -e "📦 $selected_file" >&2
     echo "$selected_file"
@@ -1294,7 +1319,17 @@ handle_cli_arguments() {
     local de
     de=$(detect_desktop_environment)
 
-    while getopts "g:c:i:rh" opt; do
+    while getopts "g:c:i:rvh" opt; do
+        case $opt in
+            v)
+                VERBOSE_MODE=true
+                ;;
+        esac
+    done
+    
+    OPTIND=1
+    
+    while getopts "g:c:i:rvh" opt; do
         case $opt in
             g)
                 save_current_theme_to_history "gtk" "$de"
@@ -1312,9 +1347,11 @@ handle_cli_arguments() {
                 return 0
                 ;;
             r)
-                #### TODO
                 restore
                 return 0
+                ;;
+            v)
+                # Already handled in first pass
                 ;;
             h)
                 show_help
