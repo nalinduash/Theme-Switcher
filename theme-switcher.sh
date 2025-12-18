@@ -1296,6 +1296,11 @@ process_theme() {
         else
             folder_list="$folder_name"
         fi
+    else
+        folder_list=$(echo "$folder_list" | jq -r '.[]' | tr '\n' ' ' | sed 's/ $//')
+        if [[ -z "$folder_name" ]]; then
+            folder_name=$(echo "$folder_list" | head -n 1)
+        fi
     fi
         
     # Install theme (copy to theme directories)
