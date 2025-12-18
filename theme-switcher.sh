@@ -908,21 +908,16 @@ select_theme_file() {
         exit 1
     fi
     
-    local file_count
-    file_count=$(echo "$available_files" | wc -l)
-    
-    if [[ "$file_count" -gt 1 ]]; then
-        local selected_file
-        selected_file=$(echo "$available_files" | gum choose --header "📦 Pick a file to download:")
-        
-        if [[ -z "$selected_file" ]]; then
-            log_warn "No file selected - cancelling"
-            exit 1  # User cancellation
-        fi
-        echo "$selected_file"
-    else
-        echo "$available_files"
-    fi
+    local selected_file
+    selected_file=$(echo "$available_files" | gum choose --header "📦 Pick a file to download:" \
+                                                         --select-if-one \
+                                                         --cursor.background="220" \
+                                                         --cursor.foreground="0" \
+                                                         --cursor.bold \
+                                                         --cursor="      ➔➔ ")
+
+    echo -e "📦 $selected_file" >&2
+    echo "$selected_file"
 }
 
 select_theme_folder(){
@@ -934,8 +929,14 @@ select_theme_folder(){
     vault_path=$(get_vault_path_to_the_zip_file "$theme_type" "$theme_id" "$zip_name")
     
     local folder_list
-    folder_list=($(find "$vault_path" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | gum choose --header "📁 Select a theme:"))
+    folder_list=($(find "$vault_path" -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | gum choose --header "   ⮩ 📁 Select a theme:" \
+                                                                                                  --select-if-one \
+                                                                                                  --cursor.background="220" \
+                                                                                                  --cursor.foreground="0" \
+                                                                                                  --cursor.bold \
+                                                                                                  --cursor="      ➔➔ " ))
     
+    echo -e "   ⮩ 📁 ${folder_list[@]}" >&2
     echo "${folder_list[@]}"
 }
 
@@ -1140,12 +1141,18 @@ select_history_entry() {
     fi
     
     local selected
-    selected=$(echo "$unique_entries" | gum choose --header "🔄 Select a theme configuration to restore:")
+    selected=$(echo "$unique_entries" | gum choose --header "🔄 Select a theme configuration to restore:" \
+                                                   --cursor.background="220" \
+                                                   --cursor.foreground="0" \
+                                                   --cursor.bold \
+                                                   --cursor="   ➔➔ ")
     
     if [[ -z "$selected" ]]; then
         log_warn "No selection made."
         return 1
     fi
+
+    echo -e "🔄 $selected" >&2
     
     local theme_type
     local theme_name
@@ -1337,14 +1344,18 @@ interactive_mode() {
     fi
     
     local chosen_package
-    chosen_package=$(echo "$packages" | gum choose --header "🎨 Pick a theme package:")
+    chosen_package=$(echo "$packages" | gum choose --header "🎨 Pick a theme package:" \
+                                                   --cursor.background="220" \
+                                                   --cursor.foreground="0" \
+                                                   --cursor.bold \
+                                                   --cursor="   ➔➔ ")
     
     if [[ -z "$chosen_package" ]]; then
         log_warn "No theme package selected. Exiting."
         exit 0
     fi
     
-    log_info "Selected: $chosen_package"
+    log_info "🎨 $chosen_package"
     
     local gtk_id gtk_file gtk_name gtk_folders
     local cursor_id cursor_file cursor_name cursor_folders
@@ -1419,7 +1430,7 @@ main() {
     fi
     
     # If no CLI arguments then run interactive mode
-    run_interactive_mode
+    interactive_mode
 }
 
 
