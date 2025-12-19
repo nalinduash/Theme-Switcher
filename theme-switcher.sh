@@ -941,6 +941,12 @@ select_theme_file() {
                                                          --cursor.bold \
                                                          --cursor="   ➔➔ ")
 
+    if [[ -z "$selected_file" ]]; then
+        log_error "No file selected."
+        log_error "Exiting..."
+        exit 0
+    fi
+
     echo -e "📦 $selected_file" >&2
     echo "$selected_file"
 }
@@ -961,6 +967,11 @@ select_theme_folder(){
                                                                                                   --cursor.bold \
                                                                                                   --cursor="      ➔➔ " ))
     
+    if [[ -z "$folder_list" ]]; then
+        log_error "No folder selected."
+        exit 0
+    fi
+
     echo -e "   ⮩ 📁 ${folder_list[@]}" >&2
     echo "${folder_list[@]}"
 }
@@ -1173,8 +1184,9 @@ select_history_entry() {
                                                    --cursor="   ➔➔ ")
     
     if [[ -z "$selected" ]]; then
-        log_warn "No selection made."
-        return 1
+        log_error "No entry selected."
+        log_error "Exiting..."
+        exit 0
     fi
 
     echo -e "🔄 $selected" >&2
@@ -1211,10 +1223,7 @@ restore() {
     log_header "Theme History"
     
     local selected_entry
-    if ! selected_entry=$(select_history_entry); then
-        log_info "Restore cancelled. Exiting."
-        exit 0
-    fi
+    selected_entry=$(select_history_entry)
     
     restore_from_history_entry "$selected_entry"
 }
@@ -1246,11 +1255,6 @@ process_theme() {
     if [[ -z "$zip_name" ]]; then
         echo ""
         zip_name=$(select_theme_file "$metadata_json" "$theme_id")
-        
-        if [[ -z "$zip_name" ]]; then
-            log_error "No files selected. Exiting."
-            exit 0
-        fi
     fi
 
     # Check if download is needed
@@ -1381,7 +1385,8 @@ interactive_mode() {
     packages=$(get_available_theme_packages)
     
     if [[ -z "$packages" ]]; then
-        log_error "No theme packages available. Exiting."
+        log_error "No theme packages available."
+        log_error "Exiting..."
         exit 0
     fi
     
@@ -1393,7 +1398,8 @@ interactive_mode() {
                                                    --cursor="   ➔➔ ")
     
     if [[ -z "$chosen_package" ]]; then
-        log_warn "No theme package selected. Exiting."
+        log_error "No theme package selected"
+        log_error "Exiting..."
         exit 0
     fi
     
@@ -1460,7 +1466,8 @@ main() {
     initialize_history
     
     if ! install_all_packages; then
-        log_error "Failed to install dependencies. Exiting."
+        log_error "Failed to install dependencies."
+        log_error "Exiting..."
         exit 1
     fi
     
