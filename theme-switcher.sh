@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# GNOME Theme Switcher - Refactored Edition
+# GNOME Theme Switcher
 # ==============================================================================
 # A modular, extensible tool for managing Linux desktop themes, cursors, icons.
 #
@@ -240,7 +240,7 @@ show_progressbar() {
                     bar+=" "         # Empty space (not yet reached)
                 fi
             done
-            printf "\r%s ${COLOR_BLUE}[:${bar}:]${COLOR_RESET}" "$label" >&2
+            printf "\r%s ${COLOR_YELLOW}[:${bar}:]${COLOR_RESET}" "$label" >&2
             sleep 0.12
         done
     done
@@ -249,7 +249,7 @@ show_progressbar() {
 
 show_banner() {
     echo ""
-    echo -e "${COLOR_BOLD}${COLOR_BLUE}"
+    echo -e "${COLOR_BOLD}${COLOR_YELLOW}"
     cat << 'EOF'
  ╔═══════════════════════════════════════════════════════════════════╗
  ║                                                                   ║
@@ -333,7 +333,7 @@ read_json_value() {
 
 is_internet_exist() {
     if ! ping -c 1 -W 3 google.com &>/dev/null; then
-        log_error "No internet connection available. Please check your network."
+        log_error "🤕 No internet connection available. Please check your network."
         return 1
     fi
     return 0
@@ -370,7 +370,7 @@ initialize_storage() {
 initialize_files_json() {
     if [[ ! -f "$FILES_JSON" ]]; then
         echo "{}" > "$FILES_JSON"
-        log_info "Created files.json"
+        log_info "🫡 Created files.json"
     fi
 }
 
@@ -380,7 +380,7 @@ initialize_history() {
 [
 ]
 EOF
-        log_info "Created history.json"
+        log_info "🫡 Created history.json"
     fi
 }
 
@@ -399,14 +399,14 @@ get_package_install_command() {
     elif command -v zypper &>/dev/null; then
         echo "sudo zypper install -y"
     else
-        log_error "Could not detect package manager"
+        log_error "🤕 Could not detect package manager"
         return 1
     fi
 }
 
 add_gum_repository_for_apt() {
     if [[ ! -f /etc/apt/sources.list.d/charm.list ]]; then
-        log_info "Adding gum repository for apt..."
+        log_info "🫡 Adding gum repository for apt..."
         sudo mkdir -p /etc/apt/keyrings
         curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
         echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | \
@@ -421,27 +421,27 @@ install_single_package() {
     local install_cmd=$(get_package_install_command)
     
     if ! is_command_exist "$package_name"; then
-        log_warn "'$package_name' is not installed. Installing..."
+        log_warn "🫡 '$package_name' is not installed. Installing..."
 
         # Exit if the package manager is not found
         if [[ $install_cmd == 1 ]]; then
-            log_error "Failed to install '$package_name'"
-            log_warn "Try installing these dependencies manually"
-            log_warn "  │─> jq"
-            log_warn "  │─> gum"
-            log_warn "  │─> curl"
-            log_warn "  │─> tar"
-            log_warn "  ╰─> unzip"
+            log_error "🤕 Failed to install '$package_name'"
+            log_warn "🥸 Try installing these dependencies manually"
+            log_warn "      │─> jq"
+            log_warn "      │─> gum"
+            log_warn "      │─> curl"
+            log_warn "      │─> tar"
+            log_warn "      ╰─> unzip"
             exit 1
         fi
         
         # Run the install command
         if ! $install_cmd "$package_name"; then
-            log_error "Failed to install '$package_name'"
+            log_error "🤕 Failed to install '$package_name'"
             return 1
         fi
 
-        log_success "$package_name installed successfully"
+        log_success "😇 $package_name installed successfully"
     fi
     return 0
 }
@@ -461,7 +461,7 @@ install_all_packages() {
     fi
     install_single_package "gum"
     
-    log_success "All dependencies are ready!"
+    log_success "😇 All dependencies are ready!"
     return 0
 }
 
@@ -600,13 +600,13 @@ fetch_theme_metadata() {
     curl -Lfs "${GNOME_LOOK_API}/${theme_id}/loadFiles" > "$temp_file" &
     local curl_pid=$!
     
-    show_progressbar "$curl_pid" "Fetching theme metadata..."
+    show_progressbar "$curl_pid" "🥸 Fetching theme metadata..."
     wait "$curl_pid"
     local curl_result=$?
     
     if [[ $curl_result -ne 0 ]]; then
         rm -f "$temp_file"
-        log_error "Failed to fetch theme metadata for ID: $theme_id"
+        log_error "🤕 Failed to fetch theme metadata for ID: $theme_id"
         return 1
     fi
 
@@ -623,7 +623,7 @@ extract_download_url() {
         '.files[] | select(.active == "1" and .name == $name) | .url' | head -n 1)
     
     if [[ -z "$encoded_url" || "$encoded_url" == "null" ]]; then
-        log_error "Download URL not found for file: $zip_name"
+        log_error "🤕 Download URL not found for file: $zip_name"
         return 1
     fi
     
@@ -640,7 +640,7 @@ get_local_update_timestamp() {
         '.[$type][$id] | to_entries[] | .value.date // empty' | sort -r | head -n 1)
 
     if [[ -z "$latest_date" || "$latest_date" == "null" ]]; then
-        log_error "Could not find the local update timestamp for theme type: $theme_type, id: $theme_id"
+        log_error "🤕 Could not find the local update timestamp for theme type: $theme_type, id: $theme_id"
         exit 1
     fi
 
@@ -656,7 +656,7 @@ get_remote_update_timestamp() {
         '.files[] | select(.active == "1" and .name == $name) | .updated_timestamp' | head -n 1)   
     
     if [[ -z "$update_date" || "$update_date" == "null" ]]; then
-        log_error "Could not find update timestamp for file: $zip_name"
+        log_error "🤕 Could not find update timestamp for file: $zip_name"
         exit 1
     fi
     
@@ -677,7 +677,7 @@ track_theme_folders() {
     folders_json=$(get_folder_names_in_vault "$theme_type" "$theme_id" "$zip_name" | jq -R . | jq -s .)
     
     if [[ -z "$folders_json" || "$folders_json" == "[]" ]]; then
-        log_warn "No folders to track for $theme_type/$theme_id"
+        log_warn "😮‍💨 No folders to track for $theme_type/$theme_id"
         return 0
     fi
     
@@ -694,7 +694,7 @@ track_theme_folders() {
                       }' "$FILES_JSON")
     
     echo "$updated_json" > "$FILES_JSON"
-    log_info "Tracked $theme_type theme folders in files.json"
+    log_info "😇 Tracked $theme_type theme folders in files.json"
 }
 
 save_the_downloaded_date() {
@@ -779,15 +779,15 @@ download_theme_zip_to_vault() {
     curl -sL -o "$vault_path/$zip_name" "$download_url" &
     local curl_pid=$!
     
-    show_progressbar "$curl_pid" "Downloading $zip_name..."
+    show_progressbar "$curl_pid" "🥸 Downloading $zip_name..."
     wait "$curl_pid"
     
     if [[ $? -ne 0 ]]; then
-        log_error "Download failed for: $zip_name"
+        log_error "🤕 Download failed for: $zip_name"
         exit 1
     fi
     
-    log_success "Downloaded: $zip_name"
+    log_success "😇 Downloaded: $zip_name"
     return 0
 }
 
@@ -801,11 +801,11 @@ extract_theme_zip_to_vault(){
     local archive_path="$vault_path/$zip_name"
     
     if [[ ! -f "$archive_path" ]]; then
-        log_error "Archive not found: $archive_path"
+        log_error "🤕 Archive not found: $archive_path"
         exit 1
     fi
     
-    log_info "Extracting: $zip_name"
+    log_info "🥸 Extracting: $zip_name"
     
     # Extract based on file extension
     case "$zip_name" in
@@ -822,12 +822,12 @@ extract_theme_zip_to_vault(){
             tar -xjf "$archive_path" -C "$vault_path"
             ;;
         *)
-            log_error "Unknown archive format: $zip_name"
+            log_error "🤕 Unknown archive format: $zip_name"
             exit 1
             ;;
     esac
     
-    log_success "Extracted: $zip_name"
+    log_success "😇 Extracted: $zip_name"
     return 0
 }
 
@@ -864,7 +864,7 @@ is_update_available() {
     fi
     
     if [[ "$remote_timestamp" -gt "$local_timestamp" ]]; then
-        log_info "$theme_type theme has updates available. Will download."
+        log_info "🥸 $theme_type theme has updates available. Will download."
         return 0
     fi
 
@@ -929,7 +929,7 @@ select_theme_file() {
     available_files=$(get_active_theme_file_names "$metadata_json")
     
     if [[ -z "$available_files" ]]; then
-        log_error "No active files found for theme ID: $theme_id"
+        log_error "🤕 No active files found for theme ID: $theme_id"
         exit 1
     fi
     
@@ -941,11 +941,9 @@ select_theme_file() {
                                                          --cursor.bold \
                                                          --cursor="   ➔➔ ")
 
-    if [[ -z "$selected_file" ]]; then
-        log_error "No file selected."
-        log_error "Exiting..."
-        exit 0
-    fi
+    if [[ -z "$selected" ]]; then
+        return 1
+    fi 
 
     echo -e "📦 $selected_file" >&2
     echo "$selected_file"
@@ -967,9 +965,8 @@ select_theme_folder(){
                                                                                                   --cursor.bold \
                                                                                                   --cursor="      ➔➔ " ))
     
-    if [[ -z "$folder_list" ]]; then
-        log_error "No folder selected."
-        exit 0
+    if [[ -z "$selected" ]]; then
+        return 1
     fi
 
     echo -e "   ⮩ 📁 ${folder_list[@]}" >&2
@@ -1037,12 +1034,12 @@ update_icon_cache() {
     fi
     
     if is_command_exist "gtk-update-icon-cache"; then
-        log_info "Updating icon cache (GTK3)..."
+        log_info "🥸 Updating icon cache (GTK3)..."
         gtk-update-icon-cache -f -t "$ICONS_DIR/$icon_name" 2>/dev/null || true
     fi
     
     if is_command_exist "gtk4-update-icon-cache"; then
-        log_info "Updating icon cache (GTK4)..."
+        log_info "🥸 Updating icon cache (GTK4)..."
         gtk4-update-icon-cache -f -t "$ICONS_DIR/$icon_name" 2>/dev/null || true
     fi
 }
@@ -1061,15 +1058,15 @@ download_wallpaper() {
     curl -sL -o "$VAULT_DIR/wallpaper/$filename" "$url" &
     local curl_pid=$!
     
-    show_progressbar "$curl_pid" "Downloading Wallpaper: $filename..."
+    show_progressbar "$curl_pid" "🥸 Downloading Wallpaper: $filename..."
     wait "$curl_pid"
     
     if [[ $? -ne 0 ]]; then
-        log_error "Failed to download wallpaper: $filename"
+        log_error "🤕 Failed to download wallpaper: $filename"
         exit 1
     fi
 
-    log_info "Downloaded wallpaper: $filename"
+    log_info "😇 Downloaded wallpaper: $filename"
 }
 
 install_wallpaper() {
@@ -1100,12 +1097,12 @@ process_wallpapers() {
     log_header "Wallpapers"
     
     if [[ -f "$VAULT_DIR/wallpaper/$light_file" ]]; then
-        log_info "Wallpaper already exists: $light_file"
+        log_info "😇 Wallpaper already exists: $light_file"
     else
         download_wallpaper "$light_url" "$light_file"
     fi
     if [[ -f "$VAULT_DIR/wallpaper/$dark_file" ]]; then
-        log_info "Wallpaper already exists: $dark_file"
+        log_info "😇 Wallpaper already exists: $dark_file"
     else
         download_wallpaper "$dark_url" "$dark_file"
     fi
@@ -1151,12 +1148,12 @@ save_current_theme_to_history() {
     history=$(echo "$history" | jq --argjson entry "$new_entry" '. + [$entry] | .[-100:]')
     
     echo "$history" > "$HISTORY_FILE"
-    log_info "Saved current $theme_type theme to history"
+    log_info "😇 Saved current $theme_type theme to history"
 }
 
 select_history_entry() {
     if [[ ! -f "$HISTORY_FILE" ]]; then
-        log_error "No theme history found."
+        log_error "😮‍💨 No theme history found."
         return 1
     fi
     
@@ -1164,7 +1161,7 @@ select_history_entry() {
     history=$(cat "$HISTORY_FILE")
     
     if [[ -z "$history" || "$history" == "[]" ]]; then
-        log_error "Theme history is empty."
+        log_error "😮‍💨 Theme history is empty."
         return 1
     fi
     
@@ -1172,7 +1169,7 @@ select_history_entry() {
     unique_entries=$(echo "$history" | jq -r 'group_by(.type + ":" + .name) | .[] | .[-1] | "\(.type) theme: \(.name)"' | sort -u)
     
     if [[ -z "$unique_entries" ]]; then
-        log_error "No valid history entries."
+        log_error "🤕 No valid history entries."
         return 1
     fi
     
@@ -1184,9 +1181,7 @@ select_history_entry() {
                                                    --cursor="   ➔➔ ")
     
     if [[ -z "$selected" ]]; then
-        log_error "No entry selected."
-        log_error "Exiting..."
-        exit 0
+        return 1
     fi
 
     echo -e "🔄 $selected" >&2
@@ -1209,14 +1204,14 @@ restore_from_history_entry() {
     theme_type=$(echo "$entry" | jq -r '.type')
     theme_name=$(echo "$entry" | jq -r '.name')
     
-    log_header "Restoring Theme Configuration"
-    log_info "  ├─>Type: $theme_type"
-    log_info "  ╰─>Name: $theme_name"
+    log_info "🥸 Restoring Theme Configuration"
+    log_info "      ├─>Type: $theme_type"
+    log_info "      ╰─>Name: $theme_name"
     
     local function_name="apply_${theme_type}_theme_${de}"
     $function_name "$theme_name"
     
-    log_success "Theme restored!"
+    log_success "😇 Theme restored!"
 }
 
 restore() {
@@ -1224,6 +1219,12 @@ restore() {
     
     local selected_entry
     selected_entry=$(select_history_entry)
+
+    if [[ -z "$selected_entry" ]]; then
+        log_error "😮‍💨 No entry selected."
+        log_error "🫤 Exiting..."
+        exit 0
+    fi
     
     restore_from_history_entry "$selected_entry"
 }
@@ -1247,7 +1248,7 @@ process_theme() {
     
     local metadata_json
     if ! metadata_json=$(fetch_theme_metadata "$theme_id"); then
-        log_error "Failed to fetch theme metadata"
+        log_error "🤕 Failed to fetch theme metadata"
         exit 1
     fi
     
@@ -1255,6 +1256,12 @@ process_theme() {
     if [[ -z "$zip_name" ]]; then
         echo ""
         zip_name=$(select_theme_file "$metadata_json" "$theme_id")
+
+        if [[ -z "$zip_name" ]]; then
+            log_error "😮‍💨 No zip file selected"
+            log_error "🫤 Exiting..."
+            exit 1
+        fi
     fi
 
     # Check if download is needed
@@ -1265,15 +1272,15 @@ process_theme() {
             untrack_full_theme "$theme_type" "$theme_id"
 
             if ! download_theme_zip_to_vault "$theme_type" "$theme_id" "$zip_name" "$metadata_json"; then
-                log_error "Failed to download/extract theme"
+                log_error "🤕 Failed to download/extract theme"
                 exit 1
             fi
         else
-            log_info "Theme is up-to-date"
+            log_info "😇 Theme is up-to-date"
         fi
     else
         if ! download_theme_zip_to_vault "$theme_type" "$theme_id" "$zip_name" "$metadata_json"; then
-            log_error "Failed to download/extract theme"
+            log_error "🤕 Failed to download/extract theme"
             exit 1
         fi
     fi
@@ -1295,6 +1302,12 @@ process_theme() {
     if [[ -z "$folder_list" ]]; then
         if [[ -z "$folder_name" ]]; then
             folder_list=$(select_theme_folder "$theme_type" "$theme_id" "$zip_name")
+
+            if [[ -z $folder_list ]]; then
+                log_error "😮‍💨 No folder selected"
+                log_error "🫤 Exiting..."
+                exit 1
+            fi
             # We put the prefered variant at the top of the list
             folder_name=$(echo "$folder_list" | head -n 1)
         else
@@ -1315,7 +1328,7 @@ process_theme() {
     local function_name="apply_${theme_type}_theme_${de}"
     $function_name "$folder_name"
     
-    log_success "${theme_type} theme ($folder_name) complete!"
+    log_success "😇 ${theme_type} theme ($folder_name) complete!"
     return 0
 }
 
@@ -1367,7 +1380,7 @@ handle_cli_arguments() {
                 return 0
                 ;;
             *)
-                log_error "Invalid option. Use -h for help."
+                log_error "🤕 Invalid option. Use -h for help."
                 return 0
                 ;;
         esac
@@ -1385,8 +1398,8 @@ interactive_mode() {
     packages=$(get_available_theme_packages)
     
     if [[ -z "$packages" ]]; then
-        log_error "No theme packages available."
-        log_error "Exiting..."
+        log_error "😮‍💨 No theme packages available."
+        log_error "🫤 Exiting..."
         exit 0
     fi
     
@@ -1398,8 +1411,8 @@ interactive_mode() {
                                                    --cursor="   ➔➔ ")
     
     if [[ -z "$chosen_package" ]]; then
-        log_error "No theme package selected"
-        log_error "Exiting..."
+        log_error "😮‍💨 No theme package selected"
+        log_error "🫤 Exiting..."
         exit 0
     fi
     
@@ -1430,11 +1443,11 @@ interactive_mode() {
     wp_dark_file=$(read_json_value "$THEME_PACKAGES_JSON" ".\"${chosen_package}\".wallpaper.dark")
     wp_dark_url=$(read_json_value "$THEME_PACKAGES_JSON" ".\"${chosen_package}\".wallpaper.darkURL")
     
-    log_info "This package includes:"
-    log_info "  ├─> GTK:    $gtk_name"
-    log_info "  ├─> Cursor: $cursor_name"
-    log_info "  ├─> Icon:   $icon_name"
-    log_info "  ╰─> Wallpapers: $wp_light_file, $wp_dark_file"
+    log_info "🥸This package includes:"
+    log_info "      ├─> GTK:    $gtk_name"
+    log_info "      ├─> Cursor: $cursor_name"
+    log_info "      ├─> Icon:   $icon_name"
+    log_info "      ╰─> Wallpapers: $wp_light_file, $wp_dark_file"
     echo ""
     
     log_header "Saving current theme to history"
@@ -1449,8 +1462,8 @@ interactive_mode() {
     process_wallpapers "$wp_light_file" "$wp_light_url" "$wp_dark_file" "$wp_dark_url" "$de"
     
     log_header "Complete!"
-    log_success "Theme package '$chosen_package' has been applied!"
-    log_info "Use '$0 -r' to restore previous theme if needed."
+    log_success "😇 Theme package '$chosen_package' has been applied!"
+    log_info "🥸 Use '$0 -r' to restore previous theme if needed."
     
     return 0
 }
@@ -1466,8 +1479,8 @@ main() {
     initialize_history
     
     if ! install_all_packages; then
-        log_error "Failed to install dependencies."
-        log_error "Exiting..."
+        log_error "🤕 Failed to install dependencies."
+        log_error "🫤 Exiting..."
         exit 1
     fi
     
