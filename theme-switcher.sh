@@ -442,8 +442,50 @@ install_single_package() {
         fi
 
         log_success "😇 $package_name installed successfully"
+        clear
     fi
     return 0
+}
+
+install_user_theme_extension() {
+    if ! gnome-extensions list | grep -q user-theme@gnome-shell-extensions.gcampax.github.com; then
+        local cmd=""
+        
+        if [[ "$install_cmd" == *"dnf"* ]]; then
+            cmd="sudo dnf install -y gnome-shell-extension-user-theme"
+        elif [[ "$install_cmd" == *"apt"* ]]; then
+            cmd="sudo apt install -y gnome-shell-extension-user-theme"
+        elif [[ "$install_cmd" == *"pacman"* ]]; then
+            cmd="sudo pacman -S --noconfirm gnome-shell-extensions"
+        elif [[ "$install_cmd" == *"zypper"* ]]; then
+            cmd="sudo zypper install -y gnome-shell-extension-user-theme"
+        else
+            log_error "🤕 Failed to install User-theme gnome extension"
+            log_warn "🥸 Try installing it manually"
+            exit 1
+        fi
+
+        $cmd
+        VERBOSE_MODE=true
+        log_success "😇 User-theme gnome extension installed successfully"
+        log_info "🥸 But to enable it, you should log out and log back in"
+        log_info "🥺 Don't worry. This will not happen again"
+        log_info "🥺 Please re-run the script in the same way after logging back"
+        VERBOSE_MODE=false
+
+        if gum confirm "Do you want to log out now to apply changes?"; then
+            gnome-session-quit --logout --no-prompt
+        fi
+
+    fi
+}   
+
+enable_user_theme_extension() {
+    if gnome-extensions list | grep -q user-theme@gnome-shell-extensions.gcampax.github.com; then
+        if ! gnome-extensions list --enabled | grep -q user-theme@gnome-shell-extensions.gcampax.github.com; then
+            gnome-extensions enable user-theme@gnome-shell-extensions.gcampax.github.com
+        fi
+    fi
 }
 
 install_all_packages() {
@@ -460,6 +502,9 @@ install_all_packages() {
         add_gum_repository_for_apt
     fi
     install_single_package "gum"
+
+    install_user_theme_extension
+    enable_user_theme_extension
     
     log_success "😇 All dependencies are ready!"
     return 0
