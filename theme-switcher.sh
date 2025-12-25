@@ -986,7 +986,7 @@ select_theme_file() {
                                                          --cursor.bold \
                                                          --cursor="   ➔➔ ")
 
-    if [[ -z "$selected" ]]; then
+    if [[ -z "$selected_file" ]]; then
         return 1
     fi 
 
@@ -1010,7 +1010,7 @@ select_theme_folder(){
                                                                                                   --cursor.bold \
                                                                                                   --cursor="      ➔➔ " ))
     
-    if [[ -z "$selected" ]]; then
+    if [[ -z "$folder_list" ]]; then
         return 1
     fi
 
