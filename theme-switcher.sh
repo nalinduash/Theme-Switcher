@@ -450,6 +450,8 @@ install_single_package() {
 install_user_theme_extension() {
     if ! gnome-extensions list | grep -q user-theme@gnome-shell-extensions.gcampax.github.com; then
         local cmd=""
+        local install_cmd
+        install_cmd=$(get_package_install_command)
         
         if [[ "$install_cmd" == *"dnf"* ]]; then
             cmd="sudo dnf install -y gnome-shell-extension-user-theme"
