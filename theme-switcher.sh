@@ -478,14 +478,17 @@ install_user_theme_extension() {
         if gum confirm "Do you want to log out now to apply changes?"; then
             gnome-session-quit --logout --no-prompt
         fi
-
     fi
 }   
 
 enable_user_theme_extension() {
-    if gnome-extensions list | grep -q user-theme@gnome-shell-extensions.gcampax.github.com; then
-        if ! gnome-extensions list --enabled | grep -q user-theme@gnome-shell-extensions.gcampax.github.com; then
-            gnome-extensions enable user-theme@gnome-shell-extensions.gcampax.github.com
+    local extension_uuid
+    extension_uuid=$(gnome-extensions list 2>/dev/null | grep -i "user-theme" | head -n 1)
+
+    if [[ -n "$extension_uuid" ]]; then
+        if ! gnome-extensions list --enabled 2>/dev/null | grep -qF "$extension_uuid"; then
+            log_info "🫡 Enabling extension: $extension_uuid"
+            gnome-extensions enable "$extension_uuid"
         fi
     fi
 }
@@ -505,8 +508,10 @@ install_all_packages() {
     fi
     install_single_package "gum"
 
-    install_user_theme_extension
-    enable_user_theme_extension
+    if [[ "$(detect_desktop_environment)" == "gnome" ]]; then
+        install_user_theme_extension
+        enable_user_theme_extension
+    fi
     
     log_success "😇 All dependencies are ready!"
     return 0
